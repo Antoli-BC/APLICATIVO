@@ -8,16 +8,18 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: kivy/buildozer:latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build APK
-        env:
-          BUILDOZER_ALLOW_ROOT: 1
+
+      - name: Build APK with Kivy Docker
         run: |
-          rm -rf .buildozer
-          buildozer android debug
+          docker run --rm \
+            -v $PWD:/app \
+            -e BUILDOZER_ALLOW_ROOT=1 \
+            -e PIP_USER=0 \
+            kivy/buildozer:latest \
+            bash -c "cd /app && rm -rf .buildozer && buildozer android debug"
+
       - uses: actions/upload-artifact@v4
         with:
           name: control-obra-apk

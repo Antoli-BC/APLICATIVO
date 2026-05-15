@@ -1,0 +1,8 @@
+.buildozer/
+bin/
+__pycache__/
+*.pyc
+.DS_Store
+*.sqlite
+*.docx
+*.log

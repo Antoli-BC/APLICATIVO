@@ -709,7 +709,7 @@ class InformeScreen(BaseScreen):
         root.add_widget(colored_label("ASUNTO (opcional)"))
         root.add_widget(self.asunto_input)
 
-        root.add_widget(cat_button("GENERAR REPORTE WORD", self._generar))
+        root.add_widget(cat_button("GENERAR REPORTE DIARIO", self._generar))
         root.add_widget(Label(size_hint_y=None, height=dp(10)))
         root.add_widget(back_btn(self.app))
         scroll = ScrollView(size_hint=(1, 1))
