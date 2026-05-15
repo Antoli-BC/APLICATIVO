@@ -25,7 +25,7 @@ android.archs = arm64-v8a
 
 android.permissions = CAMERA, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE, INTERNET, READ_MEDIA_IMAGES
 android.window_softinput_mode = adjustResize
-android.gradle_dependencies = androidx.core:core:1.10.1,androidx.activity:activity:1.7.2,androidx.appcompat:appcompat:1.6.1
+android.gradle_dependencies = androidx.appcompat:appcompat:1.6.1
 android.add_src =
 
 #presplash.filename = %(source.dir)s/presplash.png
