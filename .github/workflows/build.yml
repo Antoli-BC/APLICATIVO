@@ -15,10 +15,8 @@ jobs:
         run: |
           docker run --rm \
             -v $PWD:/app \
-            -e BUILDOZER_ALLOW_ROOT=1 \
-            -e PIP_USER=0 \
             kivy/buildozer:latest \
-            bash -c "cd /app && rm -rf .buildozer && buildozer android debug"
+            bash -c "cd /app && rm -rf .buildozer && printf 'y\n' | buildozer android debug 2>&1"
 
       - uses: actions/upload-artifact@v4
         with:
