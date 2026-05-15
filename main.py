@@ -1,4 +1,24 @@
-import os, sys, shutil
+import os, sys, shutil, traceback
+
+ERR_LOG = "/storage/emulated/0/controlobra_error.txt"
+
+
+def _save_error(msg):
+    for p in [ERR_LOG, os.path.join(os.environ.get('ANDROID_PRIVATE', ''), 'error.txt')]:
+        try:
+            with open(p, "w") as f:
+                f.write(msg)
+        except:
+            pass
+
+
+def _excepthook(typ, val, tb):
+    _save_error("".join(traceback.format_exception(typ, val, tb)))
+    sys.__excepthook__(typ, val, tb)
+
+
+sys.excepthook = _excepthook
+
 from datetime import date, datetime
 from kivy.app import App
 from kivy.core.window import Window
@@ -1394,31 +1414,41 @@ class AdminScreen(BaseScreen):
 
 class ControlObraApp(App):
     def build(self):
-        self.title = "CONTROL DE OBRA"
-        if platform == "android":
-            Window.softinput_mode = "below_target"
-        init_dirs()
+        try:
+            self.title = "CONTROL DE OBRA"
+            if platform == "android":
+                Window.softinput_mode = "below_target"
+            init_dirs()
 
-        app_dir = self.user_data_dir
-        set_db_path(os.path.join(app_dir, "db_obra.sqlite"))
-        init_db()
+            app_dir = self.user_data_dir
+            set_db_path(os.path.join(app_dir, "db_obra.sqlite"))
+            init_db()
 
-        sm = ScreenManager(transition=SlideTransition(direction="left"))
-        sm.add_widget(MenuScreen(name="menu"))
-        sm.add_widget(RegistroScreen(name="registro"))
-        sm.add_widget(MaterialesScreen(name="materiales"))
-        sm.add_widget(NotasScreen(name="notas"))
-        sm.add_widget(FotosScreen(name="fotos"))
-        sm.add_widget(InformeScreen(name="informe"))
-        sm.add_widget(InformeSemanalScreen(name="informe_semanal"))
-        sm.add_widget(HistorialScreen(name="historial"))
-        sm.add_widget(AdminScreen(name="admin"))
-        sm.add_widget(AvanceGralScreen(name="avance_gral"))
-        return sm
+            sm = ScreenManager(transition=SlideTransition(direction="left"))
+            sm.add_widget(MenuScreen(name="menu"))
+            sm.add_widget(RegistroScreen(name="registro"))
+            sm.add_widget(MaterialesScreen(name="materiales"))
+            sm.add_widget(NotasScreen(name="notas"))
+            sm.add_widget(FotosScreen(name="fotos"))
+            sm.add_widget(InformeScreen(name="informe"))
+            sm.add_widget(InformeSemanalScreen(name="informe_semanal"))
+            sm.add_widget(HistorialScreen(name="historial"))
+            sm.add_widget(AdminScreen(name="admin"))
+            sm.add_widget(AvanceGralScreen(name="avance_gral"))
+            return sm
+        except Exception as e:
+            tb = "".join(traceback.format_exc())
+            _save_error(f"build() error:\n{tb}")
+            raise
 
     def switch_screen(self, screen_name):
         self.root.current = screen_name
 
 
 if __name__ == "__main__":
-    ControlObraApp().run()
+    try:
+        ControlObraApp().run()
+    except Exception as e:
+        tb = "".join(traceback.format_exc())
+        _save_error(f"run() error:\n{tb}")
+        raise
