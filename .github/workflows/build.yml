@@ -11,13 +11,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build APK with Kivy Docker
+      - name: Install Buildozer dependencies
         run: |
-          docker run --rm \
-            -v $PWD:/app \
-            -e BUILDOZER_ALLOW_ROOT=1 \
-            kivy/buildozer:latest \
-            bash -c "cd /app && rm -rf .buildozer && yes | buildozer android debug 2>&1"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-pip git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev cmake libffi-dev libssl-dev libltdl-dev 2>&1 | tail -3
+          pip install --user --upgrade Cython==0.29.36 virtualenv buildozer 2>&1 | tail -5
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Build APK
+        run: |
+          rm -rf .buildozer
+          yes | buildozer android debug 2>&1
 
       - uses: actions/upload-artifact@v4
         with:
