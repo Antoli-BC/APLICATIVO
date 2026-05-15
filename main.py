@@ -54,10 +54,9 @@ RED = "#8B0000"
 if platform == "android":
     from android.permissions import request_permissions, Permission
     request_permissions([Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE, Permission.CAMERA])
-    from jnius import autoclass
-    Environment = autoclass("android.os.Environment")
-    EXT_DIR = Environment.getExternalStorageDirectory().getAbsolutePath()
-    PHOTOS_BASE = os.path.join(EXT_DIR, "Anotaciones_Obra")
+    from plyer import storagepath
+    EXT_DIR = storagepath.get_external_storage_dir()
+    PHOTOS_BASE = os.path.join(str(EXT_DIR), "Anotaciones_Obra") if EXT_DIR else os.path.expanduser("~/Anotaciones_Obra")
 else:
     PHOTOS_BASE = os.path.join(os.path.dirname(__file__), "Anotaciones_Obra")
 
