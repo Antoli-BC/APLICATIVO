@@ -1,7 +1,3 @@
-from docx import Document
-from docx.shared import Pt, Cm, Inches, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
 import os
 from datetime import datetime
 
@@ -26,6 +22,7 @@ def _fmt_fecha_larga(fecha_str):
 
 
 def _set_col_widths(table, widths):
+    from docx.shared import Cm
     for i, w in enumerate(widths):
         for row in table.rows:
             row.cells[i].width = Cm(w)
@@ -36,6 +33,10 @@ def _build_doc(doc_title, fecha_label, sections_data,
                responsable_nombre, responsable_cargo,
                asunto, proyecto_nombre, cui, clima, observaciones,
                show_fecha_col):
+    from docx import Document
+    from docx.shared import Pt, Cm, Inches, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_TABLE_ALIGNMENT
     doc = Document()
 
     section = doc.sections[0]
