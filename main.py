@@ -51,19 +51,30 @@ GRAY = "#333333"
 WHITE = "#FFFFFF"
 RED = "#8B0000"
 
-if platform == "android":
-    from android.permissions import request_permissions, Permission
-    request_permissions([Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE, Permission.CAMERA])
-    from plyer import storagepath
-    EXT_DIR = storagepath.get_external_storage_dir()
-    PHOTOS_BASE = os.path.join(str(EXT_DIR), "Anotaciones_Obra") if EXT_DIR else os.path.expanduser("~/Anotaciones_Obra")
-else:
-    PHOTOS_BASE = os.path.join(os.path.dirname(__file__), "Anotaciones_Obra")
+PHOTOS_BASE = None
+PHOTOS_DIR = None
+REPORTS_DIR = None
 
-PHOTOS_DIR = os.path.join(PHOTOS_BASE, "Fotos")
-REPORTS_DIR = PHOTOS_BASE
-os.makedirs(PHOTOS_DIR, exist_ok=True)
-os.makedirs(REPORTS_DIR, exist_ok=True)
+
+def init_dirs():
+    global PHOTOS_BASE, PHOTOS_DIR, REPORTS_DIR
+    if PHOTOS_BASE is not None:
+        return
+    if platform == "android":
+        try:
+            from android.permissions import request_permissions, Permission
+            request_permissions([Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE, Permission.CAMERA])
+            from plyer import storagepath
+            ext_dir = storagepath.get_external_storage_dir()
+            PHOTOS_BASE = os.path.join(str(ext_dir), "Anotaciones_Obra") if ext_dir else os.path.expanduser("~/Anotaciones_Obra")
+        except Exception:
+            PHOTOS_BASE = os.path.join(os.path.dirname(__file__), "Anotaciones_Obra")
+    else:
+        PHOTOS_BASE = os.path.join(os.path.dirname(__file__), "Anotaciones_Obra")
+    PHOTOS_DIR = os.path.join(PHOTOS_BASE, "Fotos")
+    REPORTS_DIR = PHOTOS_BASE
+    os.makedirs(PHOTOS_DIR, exist_ok=True)
+    os.makedirs(REPORTS_DIR, exist_ok=True)
 
 
 def colored_label(text, color=WHITE, bold=False, size=14, halign="left"):
@@ -1386,6 +1397,7 @@ class ControlObraApp(App):
         self.title = "CONTROL DE OBRA"
         if platform == "android":
             Window.softinput_mode = "below_target"
+        init_dirs()
 
         app_dir = self.user_data_dir
         set_db_path(os.path.join(app_dir, "db_obra.sqlite"))
