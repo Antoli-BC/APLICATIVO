@@ -185,25 +185,16 @@ def _handle_file_picked(request_code, result_code, intent, on_result):
         if not uri:
             return
         from jnius import autoclass
-        PythonActivity = autoclass('org.kivy.android.PythonActivity')
-        activity = PythonActivity.mActivity
-        content_resolver = activity.getContentResolver()
-        input_stream = content_resolver.openInputStream(uri)
-        if not input_stream:
-            return
+        import os, shutil
+        activity = autoclass('org.kivy.android.PythonActivity').mActivity
+        pfd = activity.getContentResolver().openFileDescriptor(uri, "r")
+        fd = pfd.detachFd()
         temp_dir = os.path.join(PHOTOS_BASE, "temp")
         os.makedirs(temp_dir, exist_ok=True)
         temp_path = os.path.join(temp_dir, "imported_file.xlsx")
-        fis = autoclass('java.io.FileInputStream')(input_stream)
-        fos = autoclass('java.io.FileOutputStream')(temp_path)
-        buf = [0] * 8192
-        buf_arr = autoclass('java.lang.reflect.Array').newInstance(autoclass('[B').class, 8192)
-        bytes_read = fis.read(buf_arr)
-        while bytes_read > 0:
-            fos.write(buf_arr, 0, bytes_read)
-            bytes_read = fis.read(buf_arr)
-        fos.close()
-        fis.close()
+        with os.fdopen(fd, 'rb') as src:
+            with open(temp_path, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
         on_result(temp_path)
     except Exception as e:
         info_popup("Error", f"Al leer archivo: {e}")
