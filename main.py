@@ -116,6 +116,99 @@ def init_dirs():
         pass
 
 
+_ANDROID_PENDING = None
+_ANDROID_HANDLER_SET = False
+
+
+def _setup_android_handler():
+    global _ANDROID_HANDLER_SET
+    if _ANDROID_HANDLER_SET or platform != "android":
+        return
+    try:
+        from android import activity
+        activity.bind(on_activity_result=_on_activity_result)
+        _ANDROID_HANDLER_SET = True
+    except Exception:
+        pass
+
+
+def _on_activity_result(request_code, result_code, intent):
+    global _ANDROID_PENDING
+    if _ANDROID_PENDING is None:
+        return
+    cb = _ANDROID_PENDING
+    _ANDROID_PENDING = None
+    cb(request_code, result_code, intent)
+
+
+def _android_camera(filepath, on_success):
+    _setup_android_handler()
+    global _ANDROID_PENDING
+    try:
+        from jnius import autoclass
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        Intent = autoclass('android.content.Intent')
+        MediaStore = autoclass('android.provider.MediaStore')
+        Uri = autoclass('android.net.Uri')
+        File = autoclass('java.io.File')
+        activity = PythonActivity.mActivity
+        intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+        intent.putExtra(MediaStore.EXTRA_OUTPUT, Uri.fromFile(File(filepath)))
+        _ANDROID_PENDING = lambda rc, rcode, i: on_success(filepath) if rcode == -1 else None
+        activity.startActivityForResult(intent, 1001)
+    except Exception as e:
+        info_popup("Error", f"Camara no disponible: {e}")
+
+
+def _android_pick_file(mime_type, on_result):
+    _setup_android_handler()
+    global _ANDROID_PENDING
+    try:
+        from jnius import autoclass
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        Intent = autoclass('android.content.Intent')
+        activity = PythonActivity.mActivity
+        intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+        intent.addCategory(Intent.CATEGORY_OPENABLE)
+        intent.setType(mime_type)
+        _ANDROID_PENDING = lambda rc, rcode, i: _handle_file_picked(rc, rcode, i, on_result)
+        activity.startActivityForResult(intent, 1002)
+    except Exception as e:
+        info_popup("Error", f"Selector: {e}")
+
+
+def _handle_file_picked(request_code, result_code, intent, on_result):
+    if result_code != -1 or not intent:
+        return
+    try:
+        uri = intent.getData()
+        if not uri:
+            return
+        from jnius import autoclass
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        activity = PythonActivity.mActivity
+        content_resolver = activity.getContentResolver()
+        input_stream = content_resolver.openInputStream(uri)
+        if not input_stream:
+            return
+        temp_dir = os.path.join(PHOTOS_BASE, "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_path = os.path.join(temp_dir, "imported_file.xlsx")
+        fis = autoclass('java.io.FileInputStream')(input_stream)
+        fos = autoclass('java.io.FileOutputStream')(temp_path)
+        buf = [0] * 8192
+        buf_arr = autoclass('java.lang.reflect.Array').newInstance(autoclass('[B').class, 8192)
+        bytes_read = fis.read(buf_arr)
+        while bytes_read > 0:
+            fos.write(buf_arr, 0, bytes_read)
+            bytes_read = fis.read(buf_arr)
+        fos.close()
+        fis.close()
+        on_result(temp_path)
+    except Exception as e:
+        info_popup("Error", f"Al leer archivo: {e}")
+
+
 def colored_label(text, color=WHITE, bold=False, size=14, halign="left"):
     markup = f"[color={color}]{text}[/color]"
     lbl = Label(text=markup, markup=True, halign=halign, valign="middle", size_hint_y=None)
@@ -689,13 +782,16 @@ class FotosScreen(BaseScreen):
         fecha = self.fecha_input.text.strip()
         sector = self.sector_spinner.text
         desc = self.desc_input.text.strip()
-        try:
-            from plyer import camera
-            filename = f"{fecha}_{sector.replace(' ','_')}_{datetime.now().strftime('%H%M%S')}.jpg"
-            filepath = os.path.join(PHOTOS_DIR, filename)
-            camera.take_picture(filename=filepath, on_complete=lambda p: self._foto_lista(p, fecha, sector, desc, filename))
-        except Exception as e:
-            info_popup("Error", f"Camara no disponible: {e}")
+        filename = f"{fecha}_{sector.replace(' ','_')}_{datetime.now().strftime('%H%M%S')}.jpg"
+        filepath = os.path.join(PHOTOS_DIR, filename)
+        if platform == "android":
+            _android_camera(filepath, lambda p: self._foto_lista(p, fecha, sector, desc, filename))
+        else:
+            try:
+                from plyer import camera
+                camera.take_picture(filename=filepath, on_complete=lambda p: self._foto_lista(p, fecha, sector, desc, filename))
+            except Exception as e:
+                info_popup("Error", f"Camara no disponible: {e}")
 
     def _foto_lista(self, path, fecha, sector, desc, filename):
         if path and os.path.exists(path):
@@ -1185,17 +1281,43 @@ class AdminScreen(BaseScreen):
                       lambda: [delete_material_catalogo(mid), self._switch_tab("materiales")])
 
     def _import_mat_excel(self, *args):
-        content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
-        content.bind(minimum_height=content.setter("height"))
-        content.add_widget(colored_label("Selecciona archivo Excel", YELLOW, size=14))
-        content.add_widget(colored_label("Columnas: Nombre, Unidad", WHITE, size=12))
-        filechooser = FileChooserListView(path=os.path.expanduser("~"), size_hint_y=None, height=dp(300),
-                                          filters=["*.xlsx", "*.xls"])
-        content.add_widget(filechooser)
-        btn_importar = cat_button("IMPORTAR", lambda x: self._do_import_mat(filechooser.path, filechooser.selection, popup))
-        content.add_widget(btn_importar)
-        popup = Popup(title="Importar materiales", content=content, size_hint=[0.95, 0.8])
-        popup.open()
+        if platform == "android":
+            _android_pick_file("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", self._do_import_mat_android)
+        else:
+            content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
+            content.bind(minimum_height=content.setter("height"))
+            content.add_widget(colored_label("Selecciona archivo Excel", YELLOW, size=14))
+            content.add_widget(colored_label("Columnas: Nombre, Unidad", WHITE, size=12))
+            filechooser = FileChooserListView(path=os.path.expanduser("~"), size_hint_y=None, height=dp(300),
+                                              filters=["*.xlsx", "*.xls"])
+            content.add_widget(filechooser)
+            btn_importar = cat_button("IMPORTAR", lambda x: self._do_import_mat(filechooser.path, filechooser.selection, popup))
+            content.add_widget(btn_importar)
+            popup = Popup(title="Importar materiales", content=content, size_hint=[0.95, 0.8])
+            popup.open()
+
+    def _do_import_mat_android(self, filepath):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(filepath, read_only=True)
+            ws = wb.active
+            headers = [str(cell.value or "").strip().upper() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+            if "NOMBRE" not in headers or "UNIDAD" not in headers:
+                info_popup("Error", "El Excel debe tener columnas: Nombre, Unidad")
+                wb.close(); return
+            col_nom = headers.index("NOMBRE")
+            col_uni = headers.index("UNIDAD")
+            count = 0
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                nombre = str(row[col_nom] or "").strip()
+                unidad = str(row[col_uni] or "").strip()
+                if nombre and unidad:
+                    save_material_catalogo(nombre, unidad); count += 1
+            wb.close()
+            info_popup("OK", f"{count} materiales importados")
+            self._switch_tab("materiales")
+        except Exception as e:
+            info_popup("Error", f"Error al importar: {e}")
 
     def _do_import_mat(self, folder, selection, popup):
         if not selection:
@@ -1231,17 +1353,47 @@ class AdminScreen(BaseScreen):
             info_popup("Error", f"Error al importar: {e}")
 
     def _import_par_excel(self, *args):
-        content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
-        content.bind(minimum_height=content.setter("height"))
-        content.add_widget(colored_label("Selecciona archivo Excel", YELLOW, size=14))
-        content.add_widget(colored_label("Columnas: Codigo, Nombre, Descripcion, Unidad, Metrado", WHITE, size=12))
-        filechooser = FileChooserListView(path=os.path.expanduser("~"), size_hint_y=None, height=dp(300),
-                                          filters=["*.xlsx", "*.xls"])
-        content.add_widget(filechooser)
-        btn_importar = cat_button("IMPORTAR", lambda x: self._do_import_par(filechooser.path, filechooser.selection, popup))
-        content.add_widget(btn_importar)
-        popup = Popup(title="Importar partidas", content=content, size_hint=[0.95, 0.8])
-        popup.open()
+        if platform == "android":
+            _android_pick_file("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", self._do_import_par_android)
+        else:
+            content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
+            content.bind(minimum_height=content.setter("height"))
+            content.add_widget(colored_label("Selecciona archivo Excel", YELLOW, size=14))
+            content.add_widget(colored_label("Columnas: Codigo, Nombre, Descripcion, Unidad, Metrado", WHITE, size=12))
+            filechooser = FileChooserListView(path=os.path.expanduser("~"), size_hint_y=None, height=dp(300),
+                                              filters=["*.xlsx", "*.xls"])
+            content.add_widget(filechooser)
+            btn_importar = cat_button("IMPORTAR", lambda x: self._do_import_par(filechooser.path, filechooser.selection, popup))
+            content.add_widget(btn_importar)
+            popup = Popup(title="Importar partidas", content=content, size_hint=[0.95, 0.8])
+            popup.open()
+
+    def _do_import_par_android(self, filepath):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(filepath, read_only=True)
+            ws = wb.active
+            headers = [str(cell.value or "").strip().upper() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+            if "NOMBRE" not in headers:
+                info_popup("Error", "El Excel debe tener columna: Nombre")
+                wb.close(); return
+            col_idx = {h: i for i, h in enumerate(headers)}
+            count = 0
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                nombre = str(row[col_idx["NOMBRE"]] or "").strip() if "NOMBRE" in col_idx and col_idx["NOMBRE"] < len(row) else ""
+                if not nombre:
+                    continue
+                cod = str(row[col_idx["CODIGO"]] or "").strip() if "CODIGO" in col_idx and col_idx["CODIGO"] < len(row) else ""
+                desc = str(row[col_idx["DESCRIPCION"]] or "").strip() if "DESCRIPCION" in col_idx and col_idx["DESCRIPCION"] < len(row) else ""
+                uni = str(row[col_idx["UNIDAD"]] or "").strip() if "UNIDAD" in col_idx and col_idx["UNIDAD"] < len(row) else ""
+                met = float(row[col_idx["METRADO"]]) if "METRADO" in col_idx and col_idx["METRADO"] < len(row) and row[col_idx["METRADO"]] is not None else 0.0
+                save_partida(cod, nombre, desc, None, uni, met)
+                count += 1
+            wb.close()
+            info_popup("OK", f"{count} partidas importados")
+            self._switch_tab("partidas")
+        except Exception as e:
+            info_popup("Error", f"Error al importar: {e}")
 
     def _do_import_par(self, folder, selection, popup):
         if not selection:
