@@ -1,14 +1,20 @@
 import os, sys, shutil, traceback
 
-ERR_LOG = "/storage/emulated/0/controlobra_error.txt"
+ERR_LOG = None
 
 
 def _save_error(msg):
-    for p in [ERR_LOG, os.path.join(os.environ.get('ANDROID_PRIVATE', ''), 'error.txt')]:
+    paths = [os.path.join(os.environ.get('ANDROID_PRIVATE', ''), 'error.txt')]
+    try:
+        from os.path import expanduser
+        paths.append(os.path.join(expanduser("~"), "controlobra_error.txt"))
+    except Exception:
+        pass
+    for p in paths:
         try:
             with open(p, "w") as f:
                 f.write(msg)
-        except:
+        except Exception:
             pass
 
 
@@ -83,18 +89,30 @@ def init_dirs():
     if platform == "android":
         try:
             from android.permissions import request_permissions, Permission
-            request_permissions([Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE, Permission.CAMERA])
+            perms = [Permission.CAMERA]
+            from android import api_version
+            if api_version < 33:
+                perms += [Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE]
+            request_permissions(perms)
+        except Exception:
+            pass
+        try:
             from plyer import storagepath
             ext_dir = storagepath.get_external_storage_dir()
-            PHOTOS_BASE = os.path.join(str(ext_dir), "Anotaciones_Obra") if ext_dir else os.path.expanduser("~/Anotaciones_Obra")
+            PHOTOS_BASE = os.path.join(str(ext_dir), "Anotaciones_Obra") if ext_dir else None
         except Exception:
+            PHOTOS_BASE = None
+        if not PHOTOS_BASE:
             PHOTOS_BASE = os.path.join(os.path.dirname(__file__), "Anotaciones_Obra")
     else:
         PHOTOS_BASE = os.path.join(os.path.dirname(__file__), "Anotaciones_Obra")
     PHOTOS_DIR = os.path.join(PHOTOS_BASE, "Fotos")
     REPORTS_DIR = PHOTOS_BASE
-    os.makedirs(PHOTOS_DIR, exist_ok=True)
-    os.makedirs(REPORTS_DIR, exist_ok=True)
+    try:
+        os.makedirs(PHOTOS_DIR, exist_ok=True)
+        os.makedirs(REPORTS_DIR, exist_ok=True)
+    except Exception:
+        pass
 
 
 def colored_label(text, color=WHITE, bold=False, size=14, halign="left"):
