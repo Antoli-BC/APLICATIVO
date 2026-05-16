@@ -39,6 +39,7 @@ from kivy.uix.spinner import Spinner
 from kivy.uix.slider import Slider
 from kivy.uix.checkbox import CheckBox
 from kivy.uix.image import Image
+from kivy.uix.widget import Widget
 from kivy.uix.popup import Popup
 from kivy.uix.filechooser import FileChooserListView
 from kivy.uix.progressbar import ProgressBar
@@ -215,18 +216,20 @@ class BaseScreen(Screen):
         super().__init__(**kw)
         self.app = App.get_running_app()
 
-    def add_header(self, layout):
-        layout.add_widget(title_label("CONTROL DE OBRA", size=20))
-        with layout.canvas.after:
-            Color(1, 0.804, 0, 1)
-            Rectangle(pos=[0, layout.height - dp(2)], size=[Window.width, dp(2)])
-        layout.add_widget(Label(size_hint_y=None, height=dp(8)))
+def add_header(self, layout):
+    layout.add_widget(title_label("CONTROL DE OBRA", size=20))
+    line = Widget(size_hint_y=None, height=dp(2))
+    with line.canvas:
+        Color(1, 0.804, 0, 1)
+        Rectangle(pos=[0, 0], size=[Window.width, dp(2)])
+    layout.add_widget(line)
+    layout.add_widget(Widget(size_hint_y=None, height=dp(8)))
 
 
 class MenuScreen(BaseScreen):
     def on_pre_enter(self):
         self.clear_widgets()
-        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)])
+        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)], size_hint_y=None)
         root.bind(minimum_height=root.setter("height"))
         self.add_header(root)
 
@@ -263,7 +266,7 @@ class MenuScreen(BaseScreen):
             btn = cat_button(text, lambda x, s=screen: self.app.switch_screen(s))
             root.add_widget(btn)
 
-        scroll = ScrollView(size_hint=(1, 1))
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
         scroll.add_widget(root)
         self.add_widget(scroll)
 
@@ -271,7 +274,7 @@ class MenuScreen(BaseScreen):
 class RegistroScreen(BaseScreen):
     def on_pre_enter(self):
         self.clear_widgets()
-        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)])
+        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)], size_hint_y=None)
         root.bind(minimum_height=root.setter("height"))
         self.add_header(root)
         root.add_widget(section_title("REGISTRO DIARIO DE OBRA"))
@@ -355,7 +358,7 @@ class RegistroScreen(BaseScreen):
         root.add_widget(Label(size_hint_y=None, height=dp(10)))
         root.add_widget(back_btn(self.app))
 
-        scroll = ScrollView(size_hint=(1, 1))
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
         scroll.add_widget(root)
         self.add_widget(scroll)
 
@@ -489,7 +492,7 @@ class RegistroScreen(BaseScreen):
 class MaterialesScreen(BaseScreen):
     def on_pre_enter(self):
         self.clear_widgets()
-        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)])
+        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)], size_hint_y=None)
         root.bind(minimum_height=root.setter("height"))
         self.add_header(root)
         root.add_widget(section_title("CONTROL DE MATERIALES"))
@@ -516,7 +519,7 @@ class MaterialesScreen(BaseScreen):
         self._refresh_mats()
         root.add_widget(Label(size_hint_y=None, height=dp(10)))
         root.add_widget(back_btn(self.app))
-        scroll = ScrollView(size_hint=(1, 1))
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
         scroll.add_widget(root)
         self.add_widget(scroll)
 
@@ -576,7 +579,7 @@ class MaterialesScreen(BaseScreen):
 class NotasScreen(BaseScreen):
     def on_pre_enter(self):
         self.clear_widgets()
-        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)])
+        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)], size_hint_y=None)
         root.bind(minimum_height=root.setter("height"))
         self.add_header(root)
         root.add_widget(section_title("NOTAS DE CAMPO"))
@@ -595,7 +598,7 @@ class NotasScreen(BaseScreen):
         self._refresh_notas()
         root.add_widget(Label(size_hint_y=None, height=dp(10)))
         root.add_widget(back_btn(self.app))
-        scroll = ScrollView(size_hint=(1, 1))
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
         scroll.add_widget(root)
         self.add_widget(scroll)
 
@@ -646,7 +649,7 @@ class NotasScreen(BaseScreen):
 class FotosScreen(BaseScreen):
     def on_pre_enter(self):
         self.clear_widgets()
-        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)])
+        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)], size_hint_y=None)
         root.bind(minimum_height=root.setter("height"))
         self.add_header(root)
         root.add_widget(section_title("REGISTRO FOTOGRAFICO"))
@@ -678,7 +681,7 @@ class FotosScreen(BaseScreen):
         self._refresh_fotos()
         root.add_widget(Label(size_hint_y=None, height=dp(10)))
         root.add_widget(back_btn(self.app))
-        scroll = ScrollView(size_hint=(1, 1))
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
         scroll.add_widget(root)
         self.add_widget(scroll)
 
@@ -742,7 +745,7 @@ class FotosScreen(BaseScreen):
 class InformeScreen(BaseScreen):
     def on_pre_enter(self):
         self.clear_widgets()
-        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)])
+        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)], size_hint_y=None)
         root.bind(minimum_height=root.setter("height"))
         self.add_header(root)
         root.add_widget(section_title("GENERAR REPORTE DIARIO"))
@@ -760,7 +763,7 @@ class InformeScreen(BaseScreen):
         root.add_widget(cat_button("GENERAR REPORTE DIARIO", self._generar))
         root.add_widget(Label(size_hint_y=None, height=dp(10)))
         root.add_widget(back_btn(self.app))
-        scroll = ScrollView(size_hint=(1, 1))
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
         scroll.add_widget(root)
         self.add_widget(scroll)
 
@@ -796,7 +799,7 @@ class InformeScreen(BaseScreen):
 class InformeSemanalScreen(BaseScreen):
     def on_pre_enter(self):
         self.clear_widgets()
-        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)])
+        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)], size_hint_y=None)
         root.bind(minimum_height=root.setter("height"))
         self.add_header(root)
         root.add_widget(section_title("INFORME SEMANAL"))
@@ -812,7 +815,7 @@ class InformeSemanalScreen(BaseScreen):
         root.add_widget(cat_button("GENERAR INFORME SEMANAL", self._generar))
         root.add_widget(Label(size_hint_y=None, height=dp(10)))
         root.add_widget(back_btn(self.app))
-        scroll = ScrollView(size_hint=(1, 1))
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
         scroll.add_widget(root)
         self.add_widget(scroll)
 
@@ -848,7 +851,7 @@ class InformeSemanalScreen(BaseScreen):
 class HistorialScreen(BaseScreen):
     def on_pre_enter(self):
         self.clear_widgets()
-        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)])
+        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)], size_hint_y=None)
         root.bind(minimum_height=root.setter("height"))
         self.add_header(root)
         root.add_widget(section_title("HISTORIAL DE OBRA"))
@@ -857,7 +860,7 @@ class HistorialScreen(BaseScreen):
         if not fechas:
             root.add_widget(colored_label("Sin registros", YELLOW, size=12))
             root.add_widget(back_btn(self.app))
-            scroll = ScrollView(size_hint=(1, 1))
+            scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
             scroll.add_widget(root)
             self.add_widget(scroll)
             return
@@ -873,7 +876,7 @@ class HistorialScreen(BaseScreen):
         root.add_widget(self.hist_box)
         root.add_widget(Label(size_hint_y=None, height=dp(10)))
         root.add_widget(back_btn(self.app))
-        scroll = ScrollView(size_hint=(1, 1))
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
         scroll.add_widget(root)
         self.add_widget(scroll)
         self._load_data()
@@ -1005,7 +1008,7 @@ class HistorialScreen(BaseScreen):
 class AvanceGralScreen(BaseScreen):
     def on_pre_enter(self):
         self.clear_widgets()
-        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)])
+        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)], size_hint_y=None)
         root.bind(minimum_height=root.setter("height"))
         self.add_header(root)
         root.add_widget(section_title("AVANCE GENERAL DE PARTIDAS"))
@@ -1014,7 +1017,7 @@ class AvanceGralScreen(BaseScreen):
         if not partidas:
             root.add_widget(colored_label("No hay partidas", YELLOW, size=12))
             root.add_widget(back_btn(self.app))
-            scroll = ScrollView(size_hint=(1, 1))
+            scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
             scroll.add_widget(root)
             self.add_widget(scroll)
             return
@@ -1039,7 +1042,7 @@ class AvanceGralScreen(BaseScreen):
 
         root.add_widget(Label(size_hint_y=None, height=dp(10)))
         root.add_widget(back_btn(self.app))
-        scroll = ScrollView(size_hint=(1, 1))
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
         scroll.add_widget(root)
         self.add_widget(scroll)
 
@@ -1047,7 +1050,7 @@ class AvanceGralScreen(BaseScreen):
 class AdminScreen(BaseScreen):
     def on_pre_enter(self):
         self.clear_widgets()
-        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)])
+        root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)], size_hint_y=None)
         root.bind(minimum_height=root.setter("height"))
         self.add_header(root)
         root.add_widget(section_title("ADMINISTRAR CATALOGOS"))
@@ -1072,7 +1075,7 @@ class AdminScreen(BaseScreen):
         root.add_widget(self.tab_content)
         root.add_widget(Label(size_hint_y=None, height=dp(10)))
         root.add_widget(back_btn(self.app))
-        scroll = ScrollView(size_hint=(1, 1))
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True)
         scroll.add_widget(root)
         self.add_widget(scroll)
         self._current_tab = "sectores"
