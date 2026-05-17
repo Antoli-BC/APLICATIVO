@@ -116,6 +116,38 @@ PHOTOS_DIR = None
 REPORTS_DIR = None
 
 
+def _save_report_public(src_path):
+    if platform != "android":
+        return None
+    try:
+        from android import api_version
+        if api_version < 29:
+            return src_path
+        from jnius import autoclass, cast
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        ContentValues = autoclass('android.content.ContentValues')
+        Downloads = autoclass('android.provider.MediaStore$Downloads')
+        activity = PythonActivity.mActivity
+        filename = os.path.basename(src_path)
+        values = ContentValues()
+        values.put(Downloads.DISPLAY_NAME, filename)
+        values.put(Downloads.MIME_TYPE, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        values.put(Downloads.RELATIVE_PATH, "Documents/ControlObra")
+        uri = activity.getContentResolver().insert(Downloads.EXTERNAL_CONTENT_URI, values)
+        if uri is None:
+            return None
+        with open(src_path, 'rb') as src:
+            pfd = activity.getContentResolver().openFileDescriptor(uri, "w")
+            pfd = cast('android.os.ParcelFileDescriptor', pfd)
+            fd = pfd.detachFd()
+            with os.fdopen(fd, 'wb') as dst:
+                dst.write(src.read())
+        return f"Documents/ControlObra/{filename}"
+    except Exception:
+        return None
+
+
+
 def init_dirs():
     global PHOTOS_BASE, PHOTOS_DIR, REPORTS_DIR
     if PHOTOS_BASE is not None:
@@ -968,7 +1000,11 @@ class InformeScreen(BaseScreen):
             out_path = os.path.join(REPORTS_DIR, out_name)
             os.makedirs(REPORTS_DIR, exist_ok=True)
             doc.save(out_path)
-            info_popup("OK", f"Reporte guardado en:\n{out_path}")
+            pub = _save_report_public(out_path)
+            msg = out_path
+            if pub:
+                msg = f"Descargas/{pub}"
+            info_popup("OK", f"Reporte guardado en:\n{msg}")
         except Exception as e:
             info_popup("Error", f"Error al generar: {e}")
 
@@ -1021,7 +1057,11 @@ class InformeSemanalScreen(BaseScreen):
             out_path = os.path.join(REPORTS_DIR, out_name)
             os.makedirs(REPORTS_DIR, exist_ok=True)
             doc.save(out_path)
-            info_popup("OK", f"Informe semanal guardado en:\n{out_path}")
+            pub = _save_report_public(out_path)
+            msg = out_path
+            if pub:
+                msg = f"Descargas/{pub}"
+            info_popup("OK", f"Informe semanal guardado en:\n{msg}")
         except Exception as e:
             info_popup("Error", f"Error: {e}")
 
