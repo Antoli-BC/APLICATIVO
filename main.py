@@ -131,7 +131,7 @@ def _save_report_public(src_path):
         filename = os.path.basename(src_path)
         values = ContentValues()
         values.put(Downloads.DISPLAY_NAME, filename)
-        values.put(Downloads.MIME_TYPE, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        values.put(Downloads.MIME_TYPE, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         values.put(Downloads.RELATIVE_PATH, "Documents/ControlObra")
         uri = activity.getContentResolver().insert(Downloads.EXTERNAL_CONTENT_URI, values)
         if uri is None:
@@ -429,6 +429,37 @@ class BaseScreen(Screen):
             Rectangle(pos=[0, 0], size=[Window.width, dp(2)])
         layout.add_widget(line)
         layout.add_widget(Widget(size_hint_y=None, height=dp(8)))
+
+    def _preguntar_guardado(self, doc, out_path, out_name):
+        content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
+        content.bind(minimum_height=content.setter("height"))
+        content.add_widget(colored_label("Reporte generado correctamente", YELLOW, size=14))
+        content.add_widget(colored_label("¿Dónde desea guardarlo?", WHITE, size=12))
+        content.add_widget(Widget(size_hint_y=None, height=dp(6)))
+        btn_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
+        popup = Popup(title="Guardar reporte", content=content, size_hint=[0.85, None], height=dp(240))
+        def _save_private(*a):
+            popup.dismiss()
+            os.makedirs(REPORTS_DIR, exist_ok=True)
+            doc.save(out_path)
+            info_popup("OK", f"Reporte guardado en:\n{out_path}")
+        def _save_public(*a):
+            popup.dismiss()
+            os.makedirs(REPORTS_DIR, exist_ok=True)
+            doc.save(out_path)
+            pub = _save_report_public(out_path)
+            msg = out_path
+            if pub:
+                msg = f"Descargas/{pub}"
+            info_popup("OK", f"Reporte guardado en:\n{msg}")
+        btn_private = cat_button("SOLO EN LA APP", _save_private)
+        btn_public = cat_button("EN DOCUMENTOS", _save_public)
+        btn_cancel = cat_button("CANCELAR", lambda x: popup.dismiss())
+        btn_row.add_widget(btn_private)
+        btn_row.add_widget(btn_public)
+        content.add_widget(btn_row)
+        content.add_widget(btn_cancel)
+        popup.open()
 
 
 class MenuScreen(BaseScreen):
@@ -998,13 +1029,7 @@ class InformeScreen(BaseScreen):
                                   self.asunto_input.text, proy_nombre, cui)
             out_name = f"REPORTE_DIARIO_{fecha}.docx"
             out_path = os.path.join(REPORTS_DIR, out_name)
-            os.makedirs(REPORTS_DIR, exist_ok=True)
-            doc.save(out_path)
-            pub = _save_report_public(out_path)
-            msg = out_path
-            if pub:
-                msg = f"Descargas/{pub}"
-            info_popup("OK", f"Reporte guardado en:\n{msg}")
+            self._preguntar_guardado(doc, out_path, out_name)
         except Exception as e:
             info_popup("Error", f"Error al generar: {e}")
 
@@ -1055,13 +1080,7 @@ class InformeSemanalScreen(BaseScreen):
                                           "", proy_nombre, cui)
             out_name = f"INFORME_SEMANAL_{ini}_al_{fin}.docx"
             out_path = os.path.join(REPORTS_DIR, out_name)
-            os.makedirs(REPORTS_DIR, exist_ok=True)
-            doc.save(out_path)
-            pub = _save_report_public(out_path)
-            msg = out_path
-            if pub:
-                msg = f"Descargas/{pub}"
-            info_popup("OK", f"Informe semanal guardado en:\n{msg}")
+            self._preguntar_guardado(doc, out_path, out_name)
         except Exception as e:
             info_popup("Error", f"Error: {e}")
 
