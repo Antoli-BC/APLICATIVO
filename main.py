@@ -53,9 +53,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 from database import (
     set_db_path, init_db, get_connection,
     get_sectores, save_sector, update_sector, delete_sector,
-    get_materiales_catalogo, save_material_catalogo, update_material_catalogo, delete_material_catalogo,
+    get_materiales_catalogo, save_material_catalogo, update_material_catalogo, delete_material_catalogo, delete_all_materiales_catalogo,
     get_subcontratas, save_subcontrata, update_subcontrata, delete_subcontrata,
-    get_partidas, save_partida, update_partida, delete_partida,
+    get_partidas, save_partida, update_partida, delete_partida, delete_all_partidas,
     get_registro_diario, get_or_create_registro_diario,
     save_avance, get_avances, get_avance, update_avance, delete_avance,
     get_registros_fechas,
@@ -1403,11 +1403,26 @@ class AdminScreen(BaseScreen):
                       lambda: [delete_material_catalogo(mid), self._switch_tab("materiales")])
 
     def _import_mat_excel(self, *args):
+        content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
+        content.bind(minimum_height=content.setter("height"))
+        content.add_widget(colored_label("¿Cómo desea importar?", YELLOW, size=14))
+        content.add_widget(colored_label("Reemplazar: borra todo antes de importar", WHITE, size=11))
+        content.add_widget(colored_label("Agregar: añade sin borrar existentes", WHITE, size=11))
+        btn_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
+        popup = Popup(title="Importar materiales", content=content, size_hint=[0.85, None], height=dp(220))
+        btn_append = cat_button("AGREGAR", lambda x: [popup.dismiss(), self._import_mat_pick_file(False)])
+        btn_replace = cat_button("REEMPLAZAR", lambda x: [popup.dismiss(), self._import_mat_pick_file(True)])
+        btn_row.add_widget(btn_append)
+        btn_row.add_widget(btn_replace)
+        content.add_widget(btn_row)
+        popup.open()
+
+    def _import_mat_pick_file(self, replace):
         if platform == "android":
             try:
                 from plyer import filechooser
                 filechooser.open_file(
-                    on_selection=lambda sel: self._do_import_mat_android(sel[0]) if sel else info_popup("Info", "No se seleccionó archivo"),
+                    on_selection=lambda sel: self._do_import_mat_android(sel[0], replace) if sel else info_popup("Info", "No se seleccionó archivo"),
                     filters=["*.xlsx", "*.xls"])
             except Exception as e:
                 info_popup("Error", f"Selector: {e}")
@@ -1416,16 +1431,18 @@ class AdminScreen(BaseScreen):
             content.bind(minimum_height=content.setter("height"))
             content.add_widget(colored_label("Selecciona archivo Excel", YELLOW, size=14))
             content.add_widget(colored_label("Columnas: Nombre, Unidad", WHITE, size=12))
-            filechooser = FileChooserListView(path=os.path.expanduser("~"), size_hint_y=None, height=dp(300),
-                                              filters=["*.xlsx", "*.xls"])
-            content.add_widget(filechooser)
-            btn_importar = cat_button("IMPORTAR", lambda x: self._do_import_mat(filechooser.path, filechooser.selection, popup))
+            fc = FileChooserListView(path=os.path.expanduser("~"), size_hint_y=None, height=dp(300),
+                                      filters=["*.xlsx", "*.xls"])
+            content.add_widget(fc)
+            btn_importar = cat_button("IMPORTAR", lambda x: self._do_import_mat(fc.path, fc.selection, popup, replace))
             content.add_widget(btn_importar)
             popup = Popup(title="Importar materiales", content=content, size_hint=[0.95, 0.8])
             popup.open()
 
-    def _do_import_mat_android(self, filepath):
+    def _do_import_mat_android(self, filepath, replace):
         try:
+            if replace:
+                delete_all_materiales_catalogo()
             import openpyxl
             wb = openpyxl.load_workbook(filepath, read_only=True)
             ws = wb.active
@@ -1447,7 +1464,7 @@ class AdminScreen(BaseScreen):
         except Exception as e:
             info_popup("Error", f"Error al importar: {e}")
 
-    def _do_import_mat(self, folder, selection, popup):
+    def _do_import_mat(self, folder, selection, popup, replace):
         if not selection:
             info_popup("Error", "Selecciona un archivo")
             return
@@ -1456,6 +1473,8 @@ class AdminScreen(BaseScreen):
             info_popup("Error", "Debe ser archivo .xlsx")
             return
         try:
+            if replace:
+                delete_all_materiales_catalogo()
             import openpyxl
             wb = openpyxl.load_workbook(filepath, read_only=True)
             ws = wb.active
@@ -1481,11 +1500,26 @@ class AdminScreen(BaseScreen):
             info_popup("Error", f"Error al importar: {e}")
 
     def _import_par_excel(self, *args):
+        content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
+        content.bind(minimum_height=content.setter("height"))
+        content.add_widget(colored_label("¿Cómo desea importar?", YELLOW, size=14))
+        content.add_widget(colored_label("Reemplazar: borra todo antes de importar", WHITE, size=11))
+        content.add_widget(colored_label("Agregar: añade sin borrar existentes", WHITE, size=11))
+        btn_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
+        popup = Popup(title="Importar partidas", content=content, size_hint=[0.85, None], height=dp(220))
+        btn_append = cat_button("AGREGAR", lambda x: [popup.dismiss(), self._import_par_pick_file(False)])
+        btn_replace = cat_button("REEMPLAZAR", lambda x: [popup.dismiss(), self._import_par_pick_file(True)])
+        btn_row.add_widget(btn_append)
+        btn_row.add_widget(btn_replace)
+        content.add_widget(btn_row)
+        popup.open()
+
+    def _import_par_pick_file(self, replace):
         if platform == "android":
             try:
                 from plyer import filechooser
                 filechooser.open_file(
-                    on_selection=lambda sel: self._do_import_par_android(sel[0]) if sel else info_popup("Info", "No se seleccionó archivo"),
+                    on_selection=lambda sel: self._do_import_par_android(sel[0], replace) if sel else info_popup("Info", "No se seleccionó archivo"),
                     filters=["*.xlsx", "*.xls"])
             except Exception as e:
                 info_popup("Error", f"Selector: {e}")
@@ -1494,16 +1528,18 @@ class AdminScreen(BaseScreen):
             content.bind(minimum_height=content.setter("height"))
             content.add_widget(colored_label("Selecciona archivo Excel", YELLOW, size=14))
             content.add_widget(colored_label("Columnas: Codigo, Nombre, Descripcion, Unidad, Metrado", WHITE, size=12))
-            filechooser = FileChooserListView(path=os.path.expanduser("~"), size_hint_y=None, height=dp(300),
-                                              filters=["*.xlsx", "*.xls"])
-            content.add_widget(filechooser)
-            btn_importar = cat_button("IMPORTAR", lambda x: self._do_import_par(filechooser.path, filechooser.selection, popup))
+            fc = FileChooserListView(path=os.path.expanduser("~"), size_hint_y=None, height=dp(300),
+                                      filters=["*.xlsx", "*.xls"])
+            content.add_widget(fc)
+            btn_importar = cat_button("IMPORTAR", lambda x: self._do_import_par(fc.path, fc.selection, popup, replace))
             content.add_widget(btn_importar)
             popup = Popup(title="Importar partidas", content=content, size_hint=[0.95, 0.8])
             popup.open()
 
-    def _do_import_par_android(self, filepath):
+    def _do_import_par_android(self, filepath, replace):
         try:
+            if replace:
+                delete_all_partidas()
             import openpyxl
             wb = openpyxl.load_workbook(filepath, read_only=True)
             ws = wb.active
@@ -1529,7 +1565,7 @@ class AdminScreen(BaseScreen):
         except Exception as e:
             info_popup("Error", f"Error al importar: {e}")
 
-    def _do_import_par(self, folder, selection, popup):
+    def _do_import_par(self, folder, selection, popup, replace):
         if not selection:
             info_popup("Error", "Selecciona un archivo")
             return
@@ -1538,6 +1574,8 @@ class AdminScreen(BaseScreen):
             info_popup("Error", "Debe ser archivo .xlsx")
             return
         try:
+            if replace:
+                delete_all_partidas()
             import openpyxl
             wb = openpyxl.load_workbook(filepath, read_only=True)
             ws = wb.active

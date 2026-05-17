@@ -758,6 +758,20 @@ def get_materials_por_rango(fecha_inicio, fecha_fin):
     return rows
 
 
+def delete_all_materiales_catalogo():
+    conn = get_connection()
+    conn.execute("DELETE FROM materiales_catalogo")
+    conn.commit()
+    conn.close()
+
+
+def delete_all_partidas():
+    conn = get_connection()
+    conn.execute("DELETE FROM partidas")
+    conn.commit()
+    conn.close()
+
+
 def get_field_notes_por_rango(fecha_inicio, fecha_fin):
     conn = get_connection()
     rows = conn.execute(
