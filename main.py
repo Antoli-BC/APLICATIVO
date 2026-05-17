@@ -240,8 +240,11 @@ def _android_camera(filepath, on_success):
                 values.put(ImagesMedia.RELATIVE_PATH, "Pictures/Anotaciones_Obra")
             content_uri = activity.getContentResolver().insert(
                 ImagesMedia.EXTERNAL_CONTENT_URI, values)
+            if content_uri is None:
+                raise RuntimeError("No se pudo crear archivo en la galería")
             intent.putExtra(MediaStore.EXTRA_OUTPUT, cast('android.os.Parcelable', content_uri))
             intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             _ANDROID_PENDING = lambda rc, rcode, i: _after_camera_store(
                 rc, rcode, i, content_uri, filepath, on_success)
         else:
@@ -254,6 +257,29 @@ def _android_camera(filepath, on_success):
         activity.startActivityForResult(intent, 1001)
     except Exception as e:
         info_popup("Error", f"Camara no disponible: {e}")
+
+
+def _resolve_android_path(filepath):
+    if platform == "android" and filepath.startswith("content://"):
+        try:
+            from jnius import autoclass, cast
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            Uri = autoclass('android.net.Uri')
+            activity = PythonActivity.mActivity
+            uri = Uri.parse(filepath)
+            resolver = activity.getContentResolver()
+            pfd = resolver.openFileDescriptor(uri, "r")
+            pfd = cast('android.os.ParcelFileDescriptor', pfd)
+            fd = pfd.detachFd()
+            import shutil
+            temp = os.path.join(os.environ.get('ANDROID_PRIVATE', '/tmp'), os.path.basename(filepath) or "temp.xlsx")
+            with os.fdopen(fd, 'rb') as src:
+                with open(temp, 'wb') as dst:
+                    shutil.copyfileobj(src, dst)
+            return temp
+        except Exception:
+            return filepath
+    return filepath
 
 
 def _after_camera_store(request_code, result_code, intent, content_uri, dest_path, on_success):
@@ -1460,6 +1486,7 @@ class AdminScreen(BaseScreen):
 
     def _do_import_mat_android(self, filepath, replace):
         try:
+            filepath = _resolve_android_path(filepath)
             if replace:
                 delete_all_materiales_catalogo()
             import openpyxl
@@ -1557,6 +1584,7 @@ class AdminScreen(BaseScreen):
 
     def _do_import_par_android(self, filepath, replace):
         try:
+            filepath = _resolve_android_path(filepath)
             if replace:
                 delete_all_partidas()
             import openpyxl
