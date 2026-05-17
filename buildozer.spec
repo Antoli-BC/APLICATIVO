@@ -27,6 +27,8 @@ android.permissions = CAMERA, INTERNET, READ_MEDIA_IMAGES, WRITE_EXTERNAL_STORAG
 android.window_softinput_mode = adjustResize
 android.gradle_dependencies = androidx.appcompat:appcompat:1.6.1
 android.add_src = javasrc
+android.add_res = res
+android.extra_manifest_application_arguments = <provider android:name="org.obra.control.controlobra.GenericFileProvider" android:authorities="org.obra.control.controlobra.fileprovider" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths"/></provider>
 
 #presplash.filename = %(source.dir)s/presplash.png
 #icon.filename = %(source.dir)s/icon.png

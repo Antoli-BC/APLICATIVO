@@ -34,7 +34,7 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.label import Label
 from kivy.uix.button import Button
-from kivy.uix.textinput import TextInput
+from kivy.uix.textinput import TextInput as _KivyTextInput
 from kivy.uix.spinner import Spinner
 from kivy.uix.slider import Slider
 from kivy.uix.checkbox import CheckBox
@@ -69,6 +69,39 @@ from database import (
 )
 from export import generar_informe, generar_informe_semanal
 
+
+class SmartTextInput(_KivyTextInput):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if platform == "android":
+            self.bind(focus=self._on_smart_focus)
+
+    def _on_smart_focus(self, instance, value):
+        if value:
+            Clock.schedule_once(self._enable_suggestions, 0.2)
+
+    def _enable_suggestions(self, dt):
+        try:
+            from jnius import autoclass
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            InputType = autoclass("android.text.InputType")
+            activity = PythonActivity.mActivity
+            focus = activity.getCurrentFocus()
+            if not focus:
+                window = activity.getWindow()
+                if window:
+                    focus = window.getDecorView().findFocus()
+            if focus:
+                it = focus.getInputType()
+                it = it & ~InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                it = it | InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
+                focus.setInputType(it)
+        except Exception:
+            pass
+
+
+TextInput = SmartTextInput
+
 CLIMA_OPTS = ["Soleado", "Nublado", "Lluvia", "Lluvia Intensa"]
 
 YELLOW = "#FFCD00"
@@ -98,11 +131,22 @@ def init_dirs():
         except Exception:
             pass
         try:
-            from plyer import storagepath
-            ext_dir = storagepath.get_external_storage_dir()
-            PHOTOS_BASE = os.path.join(str(ext_dir), "Anotaciones_Obra") if ext_dir else None
+            from jnius import autoclass
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            activity = PythonActivity.mActivity
+            ext_dir = activity.getExternalFilesDir(None)
+            if ext_dir is not None:
+                PHOTOS_BASE = os.path.join(ext_dir.getAbsolutePath(), "Anotaciones_Obra")
         except Exception:
             PHOTOS_BASE = None
+        if not PHOTOS_BASE:
+            try:
+                from plyer import storagepath
+                ext_dir = storagepath.get_external_storage_dir()
+                pkg = "org.obra.control.controlobra"
+                PHOTOS_BASE = os.path.join(str(ext_dir), "Android", "data", pkg, "files", "Anotaciones_Obra") if ext_dir else None
+            except Exception:
+                PHOTOS_BASE = None
         if not PHOTOS_BASE:
             PHOTOS_BASE = os.path.join(os.path.dirname(__file__), "Anotaciones_Obra")
     else:
@@ -149,12 +193,14 @@ def _android_camera(filepath, on_success):
         PythonActivity = autoclass('org.kivy.android.PythonActivity')
         Intent = autoclass('android.content.Intent')
         MediaStore = autoclass('android.provider.MediaStore')
-        Uri = autoclass('android.net.Uri')
+        FileProvider = autoclass('androidx.core.content.FileProvider')
         File = autoclass('java.io.File')
         activity = PythonActivity.mActivity
         intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-        uri = Uri.fromFile(File(filepath))
+        file = File(filepath)
+        uri = FileProvider.getUriForFile(activity, activity.getPackageName() + ".fileprovider", file)
         intent.putExtra(MediaStore.EXTRA_OUTPUT, cast('android.os.Parcelable', uri))
+        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         _ANDROID_PENDING = lambda rc, rcode, i: on_success(filepath) if rcode == -1 else None
         activity.startActivityForResult(intent, 1001)
     except Exception as e:
@@ -880,6 +926,7 @@ class InformeScreen(BaseScreen):
                                   self.asunto_input.text, proy_nombre, cui)
             out_name = f"REPORTE_DIARIO_{fecha}.xlsx"
             out_path = os.path.join(REPORTS_DIR, out_name)
+            os.makedirs(REPORTS_DIR, exist_ok=True)
             doc.save(out_path)
             info_popup("OK", f"Reporte guardado en:\n{out_path}")
         except Exception as e:
@@ -932,6 +979,7 @@ class InformeSemanalScreen(BaseScreen):
                                           "", proy_nombre, cui)
             out_name = f"INFORME_SEMANAL_{ini}_al_{fin}.xlsx"
             out_path = os.path.join(REPORTS_DIR, out_name)
+            os.makedirs(REPORTS_DIR, exist_ok=True)
             doc.save(out_path)
             info_popup("OK", f"Informe semanal guardado en:\n{out_path}")
         except Exception as e:
