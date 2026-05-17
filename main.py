@@ -255,7 +255,7 @@ def _android_pick_file(mime_type, on_result):
         activity = PythonActivity.mActivity
         intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
         intent.addCategory(Intent.CATEGORY_OPENABLE)
-        intent.setType(mime_type)
+        intent.setType("*/*")
         _ANDROID_PENDING = lambda rc, rcode, i: _handle_file_picked(rc, rcode, i, on_result)
         activity.startActivityForResult(intent, 1002)
     except Exception as e:
@@ -267,7 +267,7 @@ def _handle_file_picked(request_code, result_code, intent, on_result):
         return
     try:
         from jnius import autoclass, cast
-        import os, shutil
+        import shutil
         uri = intent.getData()
         if not uri:
             return
@@ -276,7 +276,8 @@ def _handle_file_picked(request_code, result_code, intent, on_result):
         pfd = activity.getContentResolver().openFileDescriptor(uri, "r")
         pfd = cast('android.os.ParcelFileDescriptor', pfd)
         fd = pfd.detachFd()
-        temp_dir = os.path.join(PHOTOS_BASE, "temp")
+        base = PHOTOS_BASE or os.path.join(os.path.dirname(__file__), "Anotaciones_Obra")
+        temp_dir = os.path.join(base, "temp")
         os.makedirs(temp_dir, exist_ok=True)
         temp_path = os.path.join(temp_dir, "imported_file.xlsx")
         with os.fdopen(fd, 'rb') as src:
