@@ -190,21 +190,59 @@ def _android_camera(filepath, on_success):
     global _ANDROID_PENDING
     try:
         from jnius import autoclass, cast
+        from android import api_version
         PythonActivity = autoclass('org.kivy.android.PythonActivity')
         Intent = autoclass('android.content.Intent')
         MediaStore = autoclass('android.provider.MediaStore')
-        FileProvider = autoclass('androidx.core.content.FileProvider')
-        File = autoclass('java.io.File')
         activity = PythonActivity.mActivity
         intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-        file = File(filepath)
-        uri = FileProvider.getUriForFile(activity, activity.getPackageName() + ".fileprovider", file)
-        intent.putExtra(MediaStore.EXTRA_OUTPUT, cast('android.os.Parcelable', uri))
-        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        _ANDROID_PENDING = lambda rc, rcode, i: on_success(filepath) if rcode == -1 else None
+
+        if api_version >= 24:
+            ContentValues = autoclass('android.content.ContentValues')
+            filename_only = os.path.basename(filepath)
+            values = ContentValues()
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, filename_only)
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            if api_version >= 29:
+                values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Anotaciones_Obra")
+            content_uri = activity.getContentResolver().insert(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            intent.putExtra(MediaStore.EXTRA_OUTPUT, cast('android.os.Parcelable', content_uri))
+            intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            _ANDROID_PENDING = lambda rc, rcode, i: _after_camera_store(
+                rc, rcode, i, content_uri, filepath, on_success)
+        else:
+            Uri = autoclass('android.net.Uri')
+            File = autoclass('java.io.File')
+            uri = Uri.fromFile(File(filepath))
+            intent.putExtra(MediaStore.EXTRA_OUTPUT, cast('android.os.Parcelable', uri))
+            _ANDROID_PENDING = lambda rc, rcode, i: on_success(filepath) if rcode == -1 else None
+
         activity.startActivityForResult(intent, 1001)
     except Exception as e:
         info_popup("Error", f"Camara no disponible: {e}")
+
+
+def _after_camera_store(request_code, result_code, intent, content_uri, dest_path, on_success):
+    if result_code != -1:
+        return
+    try:
+        from jnius import autoclass, cast
+        import shutil
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        activity = PythonActivity.mActivity
+        resolver = activity.getContentResolver()
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        pfd = resolver.openFileDescriptor(content_uri, "r")
+        pfd = cast('android.os.ParcelFileDescriptor', pfd)
+        fd = pfd.detachFd()
+        with os.fdopen(fd, 'rb') as src:
+            with open(dest_path, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+        resolver.delete(content_uri, None, None)
+        on_success(dest_path)
+    except Exception as e:
+        info_popup("Error", f"Foto no almacenada: {e}")
 
 
 def _android_pick_file(mime_type, on_result):
