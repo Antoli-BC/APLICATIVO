@@ -5,11 +5,11 @@ package.name = controlobra
 package.domain = org.obra.control
 
 source.dir = .
-source.include_exts = py,png,jpg,jpeg,gif,svg,xlsx,txt,sqlite
+source.include_exts = py,png,jpg,jpeg,gif,svg,xlsx,txt,sqlite,docx
 
 version = 1.2.0
 
-requirements = python3,kivy==2.3.1,plyer==2.1.0,openpyxl==3.1.5
+requirements = python3,kivy==2.3.1,plyer==2.1.0,openpyxl==3.1.5,python-docx==1.1.0
 orientation = portrait
 fullscreen = 0
 
@@ -26,7 +26,6 @@ android.archs = arm64-v8a
 android.permissions = CAMERA, INTERNET, READ_MEDIA_IMAGES, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
 android.window_softinput_mode = adjustResize
 android.gradle_dependencies = androidx.appcompat:appcompat:1.6.1
-android.add_src = javasrc
 
 #presplash.filename = %(source.dir)s/presplash.png
 #icon.filename = %(source.dir)s/icon.png

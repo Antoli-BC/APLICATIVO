@@ -996,7 +996,7 @@ class InformeScreen(BaseScreen):
             doc = generar_informe(fecha, avances, mats, notas, fotos, registro,
                                   resp_nombre, resp_cargo, res_nombre, res_cargo,
                                   self.asunto_input.text, proy_nombre, cui)
-            out_name = f"REPORTE_DIARIO_{fecha}.xlsx"
+            out_name = f"REPORTE_DIARIO_{fecha}.docx"
             out_path = os.path.join(REPORTS_DIR, out_name)
             os.makedirs(REPORTS_DIR, exist_ok=True)
             doc.save(out_path)
@@ -1053,7 +1053,7 @@ class InformeSemanalScreen(BaseScreen):
             doc = generar_informe_semanal(ini, fin, registros, avances, mats, notas,
                                           resp_nombre, resp_cargo, res_nombre, res_cargo,
                                           "", proy_nombre, cui)
-            out_name = f"INFORME_SEMANAL_{ini}_al_{fin}.xlsx"
+            out_name = f"INFORME_SEMANAL_{ini}_al_{fin}.docx"
             out_path = os.path.join(REPORTS_DIR, out_name)
             os.makedirs(REPORTS_DIR, exist_ok=True)
             doc.save(out_path)

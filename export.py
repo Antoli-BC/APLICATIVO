@@ -1,8 +1,9 @@
+from docx import Document
+from docx.shared import Pt, Cm, Inches, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
 import os
 from datetime import datetime
-from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
-from openpyxl.utils import get_column_letter
 
 MESES = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio",
          "julio", "agosto", "setiembre", "octubre", "noviembre", "diciembre"]
@@ -24,122 +25,142 @@ def _fmt_fecha_larga(fecha_str):
         return fecha_str
 
 
-def _add_title(ws, title):
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=10)
-    cell = ws.cell(row=1, column=1, value=title)
-    cell.font = Font(bold=True, size=14, underline="single")
-    cell.alignment = Alignment(horizontal="center", vertical="center")
+def _set_col_widths(table, widths):
+    for i, w in enumerate(widths):
+        for row in table.rows:
+            row.cells[i].width = Cm(w)
 
 
-def _add_field(ws, row, label, value_lines):
-    ws.cell(row=row, column=1, value=f"{label}:").font = Font(bold=True, size=10)
-    for i, line in enumerate(value_lines):
-        ws.cell(row=row + i, column=2, value=line).font = Font(size=10)
-    return row + max(len(value_lines), 1)
+def _build_doc(doc_title, fecha_label, sections_data,
+               residente_nombre, residente_cargo,
+               responsable_nombre, responsable_cargo,
+               asunto, proyecto_nombre, cui, clima, observaciones,
+               show_fecha_col):
+    doc = Document()
 
+    section = doc.sections[0]
+    section.left_margin = Cm(2.5)
+    section.right_margin = Cm(2.5)
+    section.top_margin = Cm(2.5)
+    section.bottom_margin = Cm(2.5)
 
-def _add_section_title(ws, row, title):
-    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=10)
-    cell = ws.cell(row=row, column=1, value=title)
-    cell.font = Font(bold=True, size=11, color="FFCC00")
-    return row + 1
+    header = section.header
+    header.is_linked_to_previous = False
+    p_header = header.paragraphs[0]
+    p_header.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    img_path = os.path.join(os.path.dirname(__file__), "ENCABEZADO.png")
+    if os.path.exists(img_path):
+        run = p_header.add_run()
+        run.add_picture(img_path, width=Cm(15))
 
+    style = doc.styles["Normal"]
+    style.font.name = "Calibri"
+    style.font.size = Pt(10)
 
-def _add_table(ws, row, headers, data_rows):
-    thin = Side(style="thin", color="000000")
-    border = Border(top=thin, left=thin, right=thin, bottom=thin)
-    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-    header_font = Font(bold=True, size=9, color="FFFFFF")
-    data_font = Font(size=9)
+    def add_heading(text, level=1, size=10):
+        p = doc.add_heading(text, level=level)
+        for run in p.runs:
+            run.font.size = Pt(size)
+            run.font.name = "Calibri"
+            run.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+        return p
 
-    for c, h in enumerate(headers, 1):
-        cell = ws.cell(row=row, column=c, value=h)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.border = border
-        cell.alignment = Alignment(horizontal="center", wrap_text=True)
-    row += 1
+    def add_para(text, bold=False, size=10, space_after=Pt(4)):
+        p = doc.add_paragraph()
+        run = p.add_run(text)
+        run.bold = bold
+        run.font.size = Pt(size)
+        run.font.name = "Calibri"
+        p.paragraph_format.space_after = space_after
+        p.paragraph_format.space_before = Pt(0)
+        return p
 
-    for data in data_rows:
-        for c, v in enumerate(data, 1):
-            cell = ws.cell(row=row, column=c, value=str(v))
-            cell.font = data_font
-            cell.border = border
-            cell.alignment = Alignment(wrap_text=True)
-        row += 1
+    def add_field(label, value_lines):
+        p = doc.add_paragraph()
+        r1 = p.add_run(f"{label}\t: ")
+        r1.bold = True
+        r1.font.size = Pt(10)
+        r1.font.name = "Calibri"
+        for i, line in enumerate(value_lines):
+            if i > 0:
+                br = p.add_run()
+                br.add_break()
+            r2 = p.add_run(line)
+            r2.font.size = Pt(10)
+            r2.font.name = "Calibri"
+        p.paragraph_format.space_after = Pt(2)
+        p.paragraph_format.space_before = Pt(0)
+        return p
 
-    for c in range(1, len(headers) + 1):
-        ws.column_dimensions[get_column_letter(c)].width = max(12, ws.column_dimensions[get_column_letter(c)].width or 12)
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run(doc_title)
+    run.bold = True
+    run.underline = True
+    run.font.size = Pt(12)
+    run.font.name = "Calibri"
+    run.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
 
-    return row + 1
-
-
-def _build_workbook(doc_title, fecha_label, sections_data,
-                    residente_nombre, residente_cargo,
-                    responsable_nombre, responsable_cargo,
-                    asunto, proyecto_nombre, cui, clima, observaciones,
-                    show_fecha_col):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = doc_title[:31]
-    ws.sheet_properties.pageSetUpPr = None
-
-    row = 1
-    _add_title(ws, doc_title)
-    row += 2
+    doc.add_paragraph()
 
     if residente_nombre:
         lines = [residente_nombre]
         if residente_cargo:
             lines.append(residente_cargo)
-        row = _add_field(ws, row, "A", lines)
-        row += 1
+        add_field("A", lines)
 
     if responsable_nombre:
         lines = [responsable_nombre]
         if responsable_cargo:
             lines.append(responsable_cargo)
-        row = _add_field(ws, row, "DE", lines)
-        row += 1
+        add_field("DE", lines)
 
     if asunto:
-        row = _add_field(ws, row, "ASUNTO", [asunto])
-        row += 1
+        add_field("ASUNTO", [asunto])
 
-    row = _add_field(ws, row, "FECHA", [f"Santo Domingo de Acobamba, {fecha_label}"])
-    row += 2
+    add_field("FECHA", [f"Santo Domingo de Acobamba, {fecha_label}"])
 
-    img_path = os.path.join(os.path.dirname(__file__), "ENCABEZADO.png")
-    if os.path.exists(img_path):
-        try:
-            from openpyxl.drawing.image import Image as XLImage
-            img = XLImage(img_path)
-            img.width = 400
-            img.height = 80
-            ws.add_image(img, "A1")
-        except Exception:
-            pass
-
-    row = _add_section_title(ws, row, "DATOS GENERALES")
-    row = _add_field(ws, row, "NOMBRE DEL PROYECTO", [proyecto_nombre])
-    row = _add_field(ws, row, "CUI", [cui])
+    doc.add_paragraph()
+    add_heading("DATOS GENERALES", level=2, size=10)
+    add_field("NOMBRE DEL PROYECTO", [proyecto_nombre])
+    add_field("CUI", [cui])
     if clima:
-        row = _add_field(ws, row, "CLIMA", [clima])
-    if observaciones:
-        row = _add_field(ws, row, "OBSERVACIONES", [observaciones])
-    row += 1
+        add_field("CLIMA", [clima])
 
-    for section in sections_data:
-        s_type = section.get("type")
+    if observaciones:
+        add_field("OBSERVACIONES", [observaciones])
+
+    for section_data in sections_data:
+        s_type = section_data.get("type")
+
         if s_type == "partidas":
-            row = _add_section_title(ws, row, section["title"])
-            avances = section["data"]
+            doc.add_paragraph()
+            add_heading(section_data["title"], level=2, size=10)
+            avances = section_data["data"]
             if avances:
                 hdrs = ["Sector", "Código", "Partida", "Ejecutado por", "Operarios", "Oficiales", "Peones", "Horas", "Cant. Ejec."]
                 if show_fecha_col:
                     hdrs = ["Fecha"] + hdrs
-                data_rows = []
+                table = doc.add_table(rows=1, cols=len(hdrs))
+                table.style = "Light Shading Accent 1"
+                table.alignment = WD_TABLE_ALIGNMENT.CENTER
+                for i, h in enumerate(hdrs):
+                    cell = table.rows[0].cells[i]
+                    cell.text = h
+                    for p in cell.paragraphs:
+                        for r in p.runs:
+                            r.bold = True
+                            r.font.size = Pt(8)
+                            r.font.name = "Calibri"
+                            r.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+
+                if show_fecha_col:
+                    col_widths = [1.5, 1.8, 1.2, 3.8, 1.8, 1.0, 1.0, 1.0, 1.0, 1.0]
+                else:
+                    col_widths = [1.8, 1.2, 4.5, 1.8, 1.1, 1.1, 1.1, 1.1, 1.1]
+
                 for a in avances:
+                    row = table.add_row()
                     vals = []
                     if show_fecha_col:
                         vals.append(a.get("fecha", ""))
@@ -154,50 +175,102 @@ def _build_workbook(doc_title, fecha_label, sections_data,
                         f'{a.get("horas_trabajadas", 0):.1f}',
                         f'{a.get("cantidad_ejecutada", 0):.2f}',
                     ]
-                    data_rows.append(vals)
-                row = _add_table(ws, row, hdrs, data_rows)
+                    for i, v in enumerate(vals):
+                        row.cells[i].text = v
+                        for p in row.cells[i].paragraphs:
+                            for r in p.runs:
+                                r.font.size = Pt(8)
+                                r.font.name = "Calibri"
+                                r.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+
+                _set_col_widths(table, col_widths)
+                doc.add_paragraph()
 
         elif s_type == "materiales":
-            row = _add_section_title(ws, row, section["title"])
-            materiales = section["data"]
+            doc.add_paragraph()
+            add_heading(section_data["title"], level=2, size=10)
+            materiales = section_data["data"]
             if materiales:
+                table = doc.add_table(rows=1, cols=4)
+                table.style = "Light Shading Accent 1"
+                table.alignment = WD_TABLE_ALIGNMENT.CENTER
                 hdrs = ["Material", "Cantidad", "Unidad", "Fecha"]
-                data_rows = [[m["material"], str(m["cantidad"]), m["unidad"], m["fecha"]] for m in materiales]
-                row = _add_table(ws, row, hdrs, data_rows)
+                for i, h in enumerate(hdrs):
+                    cell = table.rows[0].cells[i]
+                    cell.text = h
+                    for p in cell.paragraphs:
+                        for r in p.runs:
+                            r.bold = True
+                            r.font.size = Pt(8)
+                            r.font.name = "Calibri"
+                            r.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+                for mat in materiales:
+                    row = table.add_row()
+                    vals = [mat["material"], str(mat["cantidad"]), mat["unidad"], mat["fecha"]]
+                    for i, v in enumerate(vals):
+                        row.cells[i].text = v
+                        for p in row.cells[i].paragraphs:
+                            for r in p.runs:
+                                r.font.size = Pt(8)
+                                r.font.name = "Calibri"
+                                r.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+                doc.add_paragraph()
 
         elif s_type == "notas":
-            row = _add_section_title(ws, row, section["title"])
-            for nota in section["data"]:
-                ws.cell(row=row, column=1, value=f"- {nota['nota']}").font = Font(size=10)
-                row += 1
-            row += 1
+            doc.add_paragraph()
+            add_heading(section_data["title"], level=2, size=10)
+            for nota in section_data["data"]:
+                add_para(f"- {nota['nota']}", size=10)
 
         elif s_type == "fotos":
-            row = _add_section_title(ws, row, section["title"])
-            for idx, foto in enumerate(section["data"], 1):
-                ws.cell(row=row, column=1, value=f"FOTOGRAFIA N° {idx}").font = Font(bold=True, size=10)
-                row += 1
+            doc.add_paragraph()
+            add_heading(section_data["title"], level=2, size=10)
+            for idx, foto in enumerate(section_data["data"], start=1):
+                p = doc.add_paragraph()
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                r = p.add_run(f"FOTOGRAFIA N° {idx}")
+                r.bold = True
+                r.font.size = Pt(10)
+                r.font.name = "Calibri"
                 if os.path.exists(foto["ruta"]):
                     try:
-                        from openpyxl.drawing.image import Image as XLImage
-                        ws.add_image(XLImage(foto["ruta"]), f"A{row}")
-                        row += 15
+                        doc.add_picture(foto["ruta"], width=Inches(4.5))
+                        last_paragraph = doc.paragraphs[-1]
+                        last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     except Exception:
-                        ws.cell(row=row, column=1, value="[No se pudo insertar la imagen]").font = Font(size=9)
-                        row += 1
+                        p2 = doc.add_paragraph()
+                        p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        r2 = p2.add_run("[No se pudo insertar la imagen]")
+                        r2.font.size = Pt(9)
                 if foto["descripcion"]:
-                    ws.cell(row=row, column=1, value=f"Descripcion: {foto['descripcion']}").font = Font(size=10)
-                    row += 1
-            row += 1
+                    p3 = doc.add_paragraph()
+                    p3.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    r3 = p3.add_run(f"Descripcion: {foto['descripcion']}")
+                    r3.font.size = Pt(10)
+                    r3.font.name = "Calibri"
 
-    row += 1
-    ws.cell(row=row, column=2, value="_________________________________").font = Font(size=10)
-    row += 1
-    ws.cell(row=row, column=2, value=responsable_nombre).font = Font(bold=True, size=10)
-    row += 1
-    ws.cell(row=row, column=2, value=responsable_cargo).font = Font(size=10)
+    doc.add_paragraph()
+    doc.add_paragraph()
 
-    return wb
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run("_________________________________")
+    run.font.size = Pt(10)
+
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run(responsable_nombre)
+    run.bold = True
+    run.font.size = Pt(10)
+    run.font.name = "Calibri"
+
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run(responsable_cargo)
+    run.font.size = Pt(10)
+    run.font.name = "Calibri"
+
+    return doc
 
 
 def generar_informe(fecha, avances, materiales, notas, fotos, registro,
@@ -218,11 +291,11 @@ def generar_informe(fecha, avances, materiales, notas, fotos, registro,
     clima = registro.get("clima", "") if registro else ""
     observaciones = registro.get("observaciones", "") if registro else ""
 
-    return _build_workbook("REPORTE DIARIO DE OBRA", fecha_label, sections,
-                           residente_nombre, residente_cargo,
-                           responsable_nombre, responsable_cargo,
-                           asunto, proyecto_nombre, cui, clima, observaciones,
-                           show_fecha_col=False)
+    return _build_doc("REPORTE DIARIO DE OBRA", fecha_label, sections,
+                      residente_nombre, residente_cargo,
+                      responsable_nombre, responsable_cargo,
+                      asunto, proyecto_nombre, cui, clima, observaciones,
+                      show_fecha_col=False)
 
 
 def generar_informe_semanal(fecha_ini, fecha_fin, registros, avances, materiales, notas,
@@ -248,8 +321,8 @@ def generar_informe_semanal(fecha_ini, fecha_fin, registros, avances, materiales
     if notas:
         sections.append({"type": "notas", "title": "NOTAS DE CAMPO", "data": notas})
 
-    return _build_workbook("REPORTE SEMANAL DE OBRA", fecha_label, sections,
-                           residente_nombre, residente_cargo,
-                           responsable_nombre, responsable_cargo,
-                           asunto, proyecto_nombre, cui, clima, observaciones,
-                           show_fecha_col=True)
+    return _build_doc("REPORTE SEMANAL DE OBRA", fecha_label, sections,
+                      residente_nombre, residente_cargo,
+                      responsable_nombre, responsable_cargo,
+                      asunto, proyecto_nombre, cui, clima, observaciones,
+                      show_fecha_col=True)
