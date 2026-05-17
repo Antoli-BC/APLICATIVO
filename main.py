@@ -194,6 +194,7 @@ def _android_camera(filepath, on_success):
         PythonActivity = autoclass('org.kivy.android.PythonActivity')
         Intent = autoclass('android.content.Intent')
         MediaStore = autoclass('android.provider.MediaStore')
+        ImagesMedia = autoclass('android.provider.MediaStore$Images$Media')
         activity = PythonActivity.mActivity
         intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
 
@@ -201,12 +202,12 @@ def _android_camera(filepath, on_success):
             ContentValues = autoclass('android.content.ContentValues')
             filename_only = os.path.basename(filepath)
             values = ContentValues()
-            values.put(MediaStore.Images.Media.DISPLAY_NAME, filename_only)
-            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            values.put(ImagesMedia.DISPLAY_NAME, filename_only)
+            values.put(ImagesMedia.MIME_TYPE, "image/jpeg")
             if api_version >= 29:
-                values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Anotaciones_Obra")
+                values.put(ImagesMedia.RELATIVE_PATH, "Pictures/Anotaciones_Obra")
             content_uri = activity.getContentResolver().insert(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ImagesMedia.EXTERNAL_CONTENT_URI, values)
             intent.putExtra(MediaStore.EXTRA_OUTPUT, cast('android.os.Parcelable', content_uri))
             intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             _ANDROID_PENDING = lambda rc, rcode, i: _after_camera_store(
@@ -1363,7 +1364,13 @@ class AdminScreen(BaseScreen):
 
     def _import_mat_excel(self, *args):
         if platform == "android":
-            _android_pick_file("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", self._do_import_mat_android)
+            try:
+                from plyer import filechooser
+                filechooser.open_file(
+                    on_selection=lambda sel: self._do_import_mat_android(sel[0]) if sel else info_popup("Info", "No se seleccionó archivo"),
+                    filters=["*.xlsx", "*.xls"])
+            except Exception as e:
+                info_popup("Error", f"Selector: {e}")
         else:
             content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
             content.bind(minimum_height=content.setter("height"))
@@ -1435,7 +1442,13 @@ class AdminScreen(BaseScreen):
 
     def _import_par_excel(self, *args):
         if platform == "android":
-            _android_pick_file("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", self._do_import_par_android)
+            try:
+                from plyer import filechooser
+                filechooser.open_file(
+                    on_selection=lambda sel: self._do_import_par_android(sel[0]) if sel else info_popup("Info", "No se seleccionó archivo"),
+                    filters=["*.xlsx", "*.xls"])
+            except Exception as e:
+                info_popup("Error", f"Selector: {e}")
         else:
             content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
             content.bind(minimum_height=content.setter("height"))
