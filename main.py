@@ -145,7 +145,7 @@ def _android_camera(filepath, on_success):
     _setup_android_handler()
     global _ANDROID_PENDING
     try:
-        from jnius import autoclass
+        from jnius import autoclass, cast
         PythonActivity = autoclass('org.kivy.android.PythonActivity')
         Intent = autoclass('android.content.Intent')
         MediaStore = autoclass('android.provider.MediaStore')
@@ -153,7 +153,8 @@ def _android_camera(filepath, on_success):
         File = autoclass('java.io.File')
         activity = PythonActivity.mActivity
         intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-        intent.putExtra(MediaStore.EXTRA_OUTPUT, Uri.fromFile(File(filepath)))
+        uri = Uri.fromFile(File(filepath))
+        intent.putExtra(MediaStore.EXTRA_OUTPUT, cast('android.os.Parcelable', uri))
         _ANDROID_PENDING = lambda rc, rcode, i: on_success(filepath) if rcode == -1 else None
         activity.startActivityForResult(intent, 1001)
     except Exception as e:
@@ -181,13 +182,15 @@ def _handle_file_picked(request_code, result_code, intent, on_result):
     if result_code != -1 or not intent:
         return
     try:
+        from jnius import autoclass, cast
+        import os, shutil
         uri = intent.getData()
         if not uri:
             return
-        from jnius import autoclass
-        import os, shutil
+        uri = cast('android.net.Uri', uri)
         activity = autoclass('org.kivy.android.PythonActivity').mActivity
         pfd = activity.getContentResolver().openFileDescriptor(uri, "r")
+        pfd = cast('android.os.ParcelFileDescriptor', pfd)
         fd = pfd.detachFd()
         temp_dir = os.path.join(PHOTOS_BASE, "temp")
         os.makedirs(temp_dir, exist_ok=True)
@@ -1026,11 +1029,11 @@ class HistorialScreen(BaseScreen):
             return
         content = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(10), size_hint_y=None)
         content.bind(minimum_height=content.setter("height"))
-        op_i = TextInput(text=str(a["num_operarios"]), height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        of_i = TextInput(text=str(a["num_oficiales"]), height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        pn_i = TextInput(text=str(a["num_peones"]), height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        hr_i = TextInput(text=str(a["horas_trabajadas"]), height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        ce_i = TextInput(text=str(a["cantidad_ejecutada"]), height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        op_i = TextInput(text=str(a["num_operarios"]), size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        of_i = TextInput(text=str(a["num_oficiales"]), size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        pn_i = TextInput(text=str(a["num_peones"]), size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        hr_i = TextInput(text=str(a["horas_trabajadas"]), size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        ce_i = TextInput(text=str(a["cantidad_ejecutada"]), size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
         for lbl, w in [("Operarios", op_i), ("Oficiales", of_i), ("Peones", pn_i),
                         ("Horas", hr_i), ("Cant. Ejec.", ce_i)]:
             content.add_widget(colored_label(lbl, YELLOW, size=12))
@@ -1060,7 +1063,7 @@ class HistorialScreen(BaseScreen):
             return
         content = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(10), size_hint_y=None)
         content.bind(minimum_height=content.setter("height"))
-        txt_i = TextInput(text=n["nota"], height=dp(100), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        txt_i = TextInput(text=n["nota"], size_hint_y=None, height=dp(100), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
         content.add_widget(colored_label("Nota", YELLOW, size=12))
         content.add_widget(txt_i)
         btn = cat_button("GUARDAR", lambda x: [update_field_note(nid, txt_i.text.strip()),
@@ -1079,7 +1082,7 @@ class HistorialScreen(BaseScreen):
             return
         content = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(10), size_hint_y=None)
         content.bind(minimum_height=content.setter("height"))
-        desc_i = TextInput(text=f["descripcion"] or "", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        desc_i = TextInput(text=f["descripcion"] or "", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
         content.add_widget(colored_label("Descripcion", YELLOW, size=12))
         content.add_widget(desc_i)
         btn = cat_button("GUARDAR", lambda x: [update_photo(pid, f["sector"], desc_i.text.strip()),
@@ -1209,7 +1212,7 @@ class AdminScreen(BaseScreen):
     def _edit_sector(self, sid, current_name):
         content = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(10), size_hint_y=None)
         content.bind(minimum_height=content.setter("height"))
-        nm_i = TextInput(text=current_name, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        nm_i = TextInput(text=current_name, size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
         content.add_widget(colored_label("Nombre", YELLOW, size=12))
         content.add_widget(nm_i)
         btn = cat_button("GUARDAR", lambda x: [update_sector(sid, nm_i.text.strip()),
@@ -1226,8 +1229,8 @@ class AdminScreen(BaseScreen):
         tc.add_widget(section_title("CATALOGO DE MATERIALES"))
         tc.add_widget(colored_label("Nuevo material", WHITE, size=12))
         grid = GridLayout(cols=2, spacing=dp(4), size_hint_y=None, height=dp(80))
-        self.mat_nom = TextInput(text="", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        self.mat_uni = TextInput(text="", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        self.mat_nom = TextInput(text="", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        self.mat_uni = TextInput(text="", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
         grid.add_widget(colored_label("Nombre", WHITE, size=11))
         grid.add_widget(colored_label("Unidad", WHITE, size=11))
         grid.add_widget(self.mat_nom)
@@ -1255,8 +1258,8 @@ class AdminScreen(BaseScreen):
     def _edit_mat_cat(self, mid, current_name, current_unidad):
         content = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(10), size_hint_y=None)
         content.bind(minimum_height=content.setter("height"))
-        nm_i = TextInput(text=current_name, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        un_i = TextInput(text=current_unidad, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        nm_i = TextInput(text=current_name, size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        un_i = TextInput(text=current_unidad, size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
         content.add_widget(colored_label("Nombre", YELLOW, size=12))
         content.add_widget(nm_i)
         content.add_widget(colored_label("Unidad", YELLOW, size=12))
@@ -1426,11 +1429,11 @@ class AdminScreen(BaseScreen):
         tc = self.tab_content
         tc.add_widget(section_title("PARTIDAS"))
         frm = GridLayout(cols=2, spacing=dp(4), size_hint_y=None, height=dp(240))
-        self.par_cod = TextInput(text="", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        self.par_nom = TextInput(text="", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        self.par_desc = TextInput(text="", height=dp(60), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        self.par_uni = TextInput(text="", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        self.par_met = TextInput(text="0.0", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        self.par_cod = TextInput(text="", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        self.par_nom = TextInput(text="", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        self.par_desc = TextInput(text="", size_hint_y=None, height=dp(60), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        self.par_uni = TextInput(text="", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        self.par_met = TextInput(text="0.0", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
         labels = ["Codigo", "Nombre", "Descripcion", "Unidad", "Metrado"]
         inputs = [self.par_cod, self.par_nom, self.par_desc, self.par_uni, self.par_met]
         for lbl, inp in zip(labels, inputs):
@@ -1463,11 +1466,11 @@ class AdminScreen(BaseScreen):
             return
         content = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(10), size_hint_y=None)
         content.bind(minimum_height=content.setter("height"))
-        cod_i = TextInput(text=p["codigo"] or "", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        nom_i = TextInput(text=p["nombre"], height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        desc_i = TextInput(text=p["descripcion"] or "", height=dp(60), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        uni_i = TextInput(text=p["unidad"] or "", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        met_i = TextInput(text=str(p["metrado_total"]), height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        cod_i = TextInput(text=p["codigo"] or "", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        nom_i = TextInput(text=p["nombre"], size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        desc_i = TextInput(text=p["descripcion"] or "", size_hint_y=None, height=dp(60), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        uni_i = TextInput(text=p["unidad"] or "", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        met_i = TextInput(text=str(p["metrado_total"]), size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
         for lbl, w in [("Codigo", cod_i), ("Nombre", nom_i), ("Descripcion", desc_i),
                         ("Unidad", uni_i), ("Metrado", met_i)]:
             content.add_widget(colored_label(lbl, YELLOW, size=12))
@@ -1485,9 +1488,9 @@ class AdminScreen(BaseScreen):
     def _show_subcontratas(self):
         tc = self.tab_content
         tc.add_widget(section_title("SUBCONTRATAS"))
-        self.subc_nom = TextInput(text="", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        self.subc_resp = TextInput(text="", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        self.subc_tel = TextInput(text="", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        self.subc_nom = TextInput(text="", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        self.subc_resp = TextInput(text="", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        self.subc_tel = TextInput(text="", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
         for lbl, w in [("Nombre", self.subc_nom), ("Responsable", self.subc_resp), ("Telefono", self.subc_tel)]:
             tc.add_widget(colored_label(lbl, WHITE, size=11))
             tc.add_widget(w)
@@ -1513,9 +1516,9 @@ class AdminScreen(BaseScreen):
             return
         content = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(10), size_hint_y=None)
         content.bind(minimum_height=content.setter("height"))
-        nm_i = TextInput(text=s["nombre"], height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        resp_i = TextInput(text=s["responsable"] or "", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        tel_i = TextInput(text=s["telefono"] or "", height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        nm_i = TextInput(text=s["nombre"], size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        resp_i = TextInput(text=s["responsable"] or "", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
+        tel_i = TextInput(text=s["telefono"] or "", size_hint_y=None, height=dp(36), foreground_color=[1,1,1,1], background_color=[0,0,0,1])
         for lbl, w in [("Nombre", nm_i), ("Responsable", resp_i), ("Telefono", tel_i)]:
             content.add_widget(colored_label(lbl, YELLOW, size=12))
             content.add_widget(w)
@@ -1534,17 +1537,17 @@ class AdminScreen(BaseScreen):
         tc.add_widget(section_title("CONFIGURACION"))
         config = get_all_config()
 
-        self.cfg_resp_nom = TextInput(text=config.get("responsable_nombre", ""), height=dp(36),
+        self.cfg_resp_nom = TextInput(text=config.get("responsable_nombre", ""), size_hint_y=None, height=dp(36),
                                        foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        self.cfg_resp_cargo = TextInput(text=config.get("responsable_cargo", ""), height=dp(36),
+        self.cfg_resp_cargo = TextInput(text=config.get("responsable_cargo", ""), size_hint_y=None, height=dp(36),
                                          foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        self.cfg_res_nom = TextInput(text=config.get("residente_nombre", ""), height=dp(36),
+        self.cfg_res_nom = TextInput(text=config.get("residente_nombre", ""), size_hint_y=None, height=dp(36),
                                       foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        self.cfg_res_cargo = TextInput(text=config.get("residente_cargo", ""), height=dp(36),
+        self.cfg_res_cargo = TextInput(text=config.get("residente_cargo", ""), size_hint_y=None, height=dp(36),
                                         foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        self.cfg_proy = TextInput(text=config.get("proyecto_nombre", ""), height=dp(60),
+        self.cfg_proy = TextInput(text=config.get("proyecto_nombre", ""), size_hint_y=None, height=dp(60),
                                    foreground_color=[1,1,1,1], background_color=[0,0,0,1])
-        self.cfg_cui = TextInput(text=config.get("cui", ""), height=dp(36),
+        self.cfg_cui = TextInput(text=config.get("cui", ""), size_hint_y=None, height=dp(36),
                                   foreground_color=[1,1,1,1], background_color=[0,0,0,1])
 
         tc.add_widget(colored_label("RESPONSABLE (DE)", YELLOW, bold=True, size=13))

@@ -9,7 +9,7 @@ source.include_exts = py,png,jpg,jpeg,gif,svg,xlsx,txt,sqlite
 
 version = 1.2.0
 
-requirements = python3,kivy==2.3.1,plyer==2.1.0,openpyxl==3.1.5,python-docx==1.1.2
+requirements = python3,kivy==2.3.1,plyer==2.1.0,openpyxl==3.1.5,python-docx==1.1.2,lxml
 orientation = portrait
 fullscreen = 0
 
