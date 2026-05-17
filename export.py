@@ -1,5 +1,6 @@
-import os
+import os, struct, io, zipfile
 from datetime import datetime
+from xml.sax.saxutils import escape as xml_escape
 
 try:
     from docx import Document
@@ -12,6 +13,10 @@ except ImportError:
 
 MESES = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio",
          "julio", "agosto", "setiembre", "octubre", "noviembre", "diciembre"]
+
+CM2EMU = 360000
+INCH2EMU = 914400
+PT2HPT = 2  # half-points
 
 
 def _fmt_fecha(fecha_str):
@@ -30,6 +35,402 @@ def _fmt_fecha_larga(fecha_str):
         return fecha_str
 
 
+def _img_dims(path):
+    try:
+        with open(path, 'rb') as f:
+            h = f.read(32)
+            if h[:8] == b'\x89PNG\r\n\x1a\n':
+                w, h = struct.unpack('>II', h[16:24])
+            elif h[:2] in (b'\xff\xd8',):
+                f.seek(0)
+                while True:
+                    b = f.read(2)
+                    if not b or len(b) < 2:
+                        return None
+                    marker = struct.unpack('>H', b)[0]
+                    if marker == 0xffc0 or marker == 0xffc2:
+                        f.read(3)
+                        h_b, w_b = struct.unpack('>HH', f.read(4))
+                        w, h = w_b, h_b
+                        break
+                    else:
+                        ln = struct.unpack('>H', f.read(2))[0]
+                        f.seek(ln - 2, 1)
+                else:
+                    return None
+            else:
+                return None
+            return w, h
+    except Exception:
+        return None
+
+
+def _emu(val, unit='cm'):
+    if unit == 'cm':
+        return int(val * CM2EMU)
+    return int(val * INCH2EMU)
+
+
+def _make_rels(*items):
+    lines = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>']
+    lines.append('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">')
+    for rid, typ, target in items:
+        lines.append(f'<Relationship Id="{rid}" Type="{typ}" Target="{target}"/>')
+    lines.append('</Relationships>')
+    return '\n'.join(lines)
+
+
+def _mkpara(text, bold=False, size=20, color="000000", font="Calibri", align=None, underline=False, spacing_after=100):
+    parts = []
+    parts.append('<w:p>')
+    parts.append('<w:pPr>')
+    parts.append(f'<w:spacing w:after="{spacing_after}" w:line="240" w:lineRule="auto"/>')
+    if align:
+        parts.append(f'<w:jc w:val="{align}"/>')
+    parts.append('</w:pPr>')
+    parts.append('<w:r>')
+    parts.append('<w:rPr>')
+    if bold:
+        parts.append('<w:b/>')
+    if underline:
+        parts.append('<w:u w:val="single"/>')
+    parts.append(f'<w:sz w:val="{size}"/>')
+    parts.append(f'<w:rFonts w:ascii="{font}" w:hAnsi="{font}"/>')
+    parts.append(f'<w:color w:val="{color}"/>')
+    parts.append('</w:rPr>')
+    parts.append(f'<w:t xml:space="preserve">{xml_escape(text)}</w:t>')
+    parts.append('</w:r>')
+    parts.append('</w:p>')
+    return '\n'.join(parts)
+
+
+def _mkfield(label, value_lines):
+    parts = []
+    parts.append('<w:p>')
+    parts.append('<w:pPr><w:spacing w:after="60" w:before="0"/></w:pPr>')
+    parts.append('<w:r>')
+    parts.append('<w:rPr><w:b/><w:sz w:val="20"/><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/></w:rPr>')
+    parts.append(f'<w:t xml:space="preserve">{xml_escape(label)}&#9;: </w:t>')
+    parts.append('</w:r>')
+    for i, line in enumerate(value_lines):
+        if i > 0:
+            parts.append('<w:r><w:br/></w:r>')
+        parts.append('<w:r>')
+        parts.append('<w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/></w:rPr>')
+        parts.append(f'<w:t xml:space="preserve">{xml_escape(line)}</w:t>')
+        parts.append('</w:r>')
+    parts.append('</w:p>')
+    return '\n'.join(parts)
+
+
+def _mksection_heading(text):
+    return _mkpara(text, bold=True, size=20, color="000000")
+
+
+def _mktable(hdrs, rows, col_widths_twips=None):
+    parts = []
+    parts.append('<w:tbl>')
+    parts.append('<w:tblPr>')
+    parts.append('<w:tblStyle w:val="LightShading-Accent1"/>')
+    parts.append('<w:tblW w:w="5000" w:type="pct"/>')
+    parts.append('<w:jc w:val="center"/>')
+    parts.append('</w:tblPr>')
+    if col_widths_twips:
+        parts.append('<w:tblGrid>')
+        for cw in col_widths_twips:
+            parts.append(f'<w:gridCol w:w="{cw}"/>')
+        parts.append('</w:tblGrid>')
+
+    def _cell(text, bold=False, sz=16):
+        c = ['<w:tc>']
+        c.append('<w:tcPr>')
+        c.append('<w:vAlign w:val="center"/>')
+        if col_widths_twips:
+            pass
+        c.append('</w:tcPr>')
+        c.append('<w:p>')
+        c.append('<w:pPr><w:jc w:val="center"/></w:pPr>')
+        c.append('<w:r>')
+        c.append('<w:rPr>')
+        if bold:
+            c.append('<w:b/>')
+        c.append(f'<w:sz w:val="{sz}"/>')
+        c.append('<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/>')
+        c.append('<w:color w:val="000000"/>')
+        c.append('</w:rPr>')
+        c.append(f'<w:t xml:space="preserve">{xml_escape(str(text))}</w:t>')
+        c.append('</w:r>')
+        c.append('</w:p>')
+        c.append('</w:tc>')
+        return '\n'.join(c)
+
+    parts.append('<w:tr>')
+    for h in hdrs:
+        parts.append(_cell(h, bold=True, sz=16))
+    parts.append('</w:tr>')
+
+    for row in rows:
+        parts.append('<w:tr>')
+        for v in row:
+            parts.append(_cell(v, bold=False, sz=16))
+        parts.append('</w:tr>')
+
+    parts.append('</w:tbl>')
+    return '\n'.join(parts)
+
+
+def _mkimage_para(r_id, width_emu, height_emu, descr=""):
+    return f'''<w:p>
+  <w:pPr><w:jc w:val="center"/></w:pPr>
+  <w:r>
+    <w:rPr/>
+    <w:drawing>
+      <wp:inline distT="0" distB="0" distL="0" distR="0">
+        <wp:extent cx="{width_emu}" cy="{height_emu}"/>
+        <wp:effectExtent l="0" t="0" b="0" r="0"/>
+        <wp:docPr id="0" name="Picture" descr="{xml_escape(descr)}"/>
+        <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+            <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+              <pic:nvPicPr>
+                <pic:cNvPr id="0" name="Picture"/>
+                <pic:cNvPicPr/>
+              </pic:nvPicPr>
+              <pic:blipFill>
+                <a:blip r:embed="{r_id}"/>
+                <a:stretch><a:fillRect/></a:stretch>
+              </pic:blipFill>
+              <pic:spPr>
+                <a:xfrm><a:off x="0" y="0"/><a:ext cx="{width_emu}" cy="{height_emu}"/></a:xfrm>
+                <a:prstGeom prst="rect"/>
+              </pic:spPr>
+            </pic:pic>
+          </a:graphicData>
+        </a:graphic>
+      </wp:inline>
+    </w:drawing>
+  </w:r>
+</w:p>'''
+
+
+def _build_docx_stdlib(doc_title, fecha_label, sections_data,
+                       residente_nombre, residente_cargo,
+                       responsable_nombre, responsable_cargo,
+                       asunto, proyecto_nombre, cui, clima, observaciones,
+                       show_fecha_col):
+    buf = io.BytesIO()
+    zf = zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED)
+
+    def _add(name, content):
+        if isinstance(content, str):
+            zf.writestr(name, content.encode('utf-8'))
+        else:
+            zf.writestr(name, content)
+
+    img_path = os.path.join(os.path.dirname(__file__), "ENCABEZADO.png")
+    has_header_img = os.path.exists(img_path)
+
+    body_parts = []
+    body_parts.append(f'<w:sectPr>'
+                      f'<w:pgSz w:w="11906" w:h="16838"/>'
+                      f'<w:pgMar w:left="1417" w:right="1417" w:top="1417" w:bottom="1417"/>'
+                      f'</w:sectPr>')
+
+    body_parts.append(_mkpara(doc_title, bold=True, size=24, align="center", underline=True,
+                               color="000000", spacing_after=200))
+
+    if residente_nombre:
+        lines = [residente_nombre]
+        if residente_cargo:
+            lines.append(residente_cargo)
+        body_parts.append(_mkfield("A", lines))
+
+    if responsable_nombre:
+        lines = [responsable_nombre]
+        if responsable_cargo:
+            lines.append(responsable_cargo)
+        body_parts.append(_mkfield("DE", lines))
+
+    if asunto:
+        body_parts.append(_mkfield("ASUNTO", [asunto]))
+
+    body_parts.append(_mkfield("FECHA", [f"Santo Domingo de Acobamba, {fecha_label}"]))
+    body_parts.append(_mkpara("", spacing_after=200))
+
+    body_parts.append(_mksection_heading("DATOS GENERALES"))
+    body_parts.append(_mkfield("NOMBRE DEL PROYECTO", [proyecto_nombre]))
+    body_parts.append(_mkfield("CUI", [cui]))
+    if clima:
+        body_parts.append(_mkfield("CLIMA", [clima]))
+    if observaciones:
+        body_parts.append(_mkfield("OBSERVACIONES", [observaciones]))
+
+    photo_rels = []
+    photo_idx = 0
+
+    for section_data in sections_data:
+        s_type = section_data.get("type")
+
+        if s_type == "partidas":
+            body_parts.append(_mkpara("", spacing_after=100))
+            body_parts.append(_mksection_heading(section_data["title"]))
+            avances = section_data["data"]
+            if avances:
+                hdrs = ["Sector", "Código", "Partida", "Ejecutado por", "Operarios", "Oficiales", "Peones", "Horas", "Cant. Ejec."]
+                if show_fecha_col:
+                    hdrs = ["Fecha"] + hdrs
+                rows = []
+                for a in avances:
+                    vals = []
+                    if show_fecha_col:
+                        vals.append(a.get("fecha", ""))
+                    vals += [
+                        a.get("sector_nombre") or "",
+                        a.get("partida_codigo") or "",
+                        a["partida_nombre"],
+                        a.get("subcontrata_nombre") or "Empresa",
+                        str(a.get("num_operarios", 0)),
+                        str(a.get("num_oficiales", 0)),
+                        str(a.get("num_peones", 0)),
+                        f'{a.get("horas_trabajadas", 0):.1f}',
+                        f'{a.get("cantidad_ejecutada", 0):.2f}',
+                    ]
+                    rows.append(vals)
+                col_widths = None
+                body_parts.append(_mktable(hdrs, rows, col_widths))
+                body_parts.append(_mkpara("", spacing_after=100))
+
+        elif s_type == "materiales":
+            body_parts.append(_mkpara("", spacing_after=100))
+            body_parts.append(_mksection_heading(section_data["title"]))
+            materiales = section_data["data"]
+            if materiales:
+                hdrs = ["Material", "Cantidad", "Unidad", "Fecha"]
+                rows = [[m["material"], str(m["cantidad"]), m["unidad"], m["fecha"]] for m in materiales]
+                body_parts.append(_mktable(hdrs, rows))
+                body_parts.append(_mkpara("", spacing_after=100))
+
+        elif s_type == "notas":
+            body_parts.append(_mkpara("", spacing_after=100))
+            body_parts.append(_mksection_heading(section_data["title"]))
+            for nota in section_data["data"]:
+                body_parts.append(_mkpara(f"- {nota['nota']}", size=20, spacing_after=40))
+
+        elif s_type == "fotos":
+            body_parts.append(_mkpara("", spacing_after=100))
+            body_parts.append(_mksection_heading(section_data["title"]))
+            for idx_foto, foto in enumerate(section_data["data"], start=1):
+                body_parts.append(_mkpara(f"FOTOGRAFIA N° {idx_foto}", bold=True, size=20,
+                                           align="center", spacing_after=40))
+                if os.path.exists(foto["ruta"]):
+                    dims = _img_dims(foto["ruta"])
+                    if dims:
+                        fw, fh = dims
+                        target_w = int(4.5 * INCH2EMU)
+                        target_h = int(target_w * fh / fw)
+                        r_id = f"rPhoto{photo_idx}"
+                        ext = os.path.splitext(foto["ruta"])[1].lower()
+                        fname = f"photo_{photo_idx}{ext}"
+                        photo_rels.append((r_id, fname))
+                        body_parts.append(_mkimage_para(r_id, target_w, target_h, f"Foto {idx_foto}"))
+                        with open(foto["ruta"], 'rb') as fimg:
+                            _add(f"word/media/{fname}", fimg.read())
+                        photo_idx += 1
+                    else:
+                        body_parts.append(_mkpara("[No se pudo insertar la imagen]", size=18, align="center"))
+                if foto.get("descripcion"):
+                    body_parts.append(_mkpara(f"Descripcion: {foto['descripcion']}", size=20, align="center"))
+
+    body_parts.append(_mkpara("", spacing_after=200))
+    body_parts.append(_mkpara("", spacing_after=200))
+    body_parts.append(_mkpara("_________________________________", size=20, align="center", spacing_after=40))
+    body_parts.append(_mkpara(responsable_nombre, bold=True, size=20, align="center", spacing_after=20))
+    body_parts.append(_mkpara(responsable_cargo, size=20, align="center"))
+
+    doc_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    doc_xml += '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    doc_xml += ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    doc_xml += '<w:body>'
+    doc_xml += '\n'.join(body_parts)
+    doc_xml += '</w:body></w:document>'
+    _add('word/document.xml', doc_xml)
+
+    header_rels = []
+    if has_header_img:
+        with open(img_path, 'rb') as f:
+            _add('word/media/encabezado.png', f.read())
+        dims = _img_dims(img_path)
+        if dims:
+            hw, hh = dims
+            target_hw = int(15 * CM2EMU)
+            target_hh = int(target_hw * hh / hw)
+            header_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            header_xml += '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+            header_xml += ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            header_xml += _mkimage_para("rHeaderImg", target_hw, target_hh, "encabezado")
+            header_xml += '</w:hdr>'
+            _add('word/header1.xml', header_xml)
+            header_rels.append(('rHeaderImg', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image', 'media/encabezado.png'))
+            hdr_ref = ('rIdHdr', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/header', 'header1.xml')
+        else:
+            hdr_ref = None
+    else:
+        hdr_ref = None
+
+    rels_items = [
+        ('rId1', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles', 'styles.xml'),
+    ]
+    if hdr_ref:
+        rels_items.append(('rIdHdr', hdr_ref[1], hdr_ref[2]))
+    for r_id, fname in photo_rels:
+        rels_items.append((r_id, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image', f'media/{fname}'))
+    _add('word/_rels/document.xml.rels', _make_rels(*rels_items))
+
+    if has_header_img:
+        _add('word/_rels/header1.xml.rels', _make_rels(*header_rels))
+
+    ct_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    ct_xml += '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    ct_xml += '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    ct_xml += '<Default Extension="xml" ContentType="application/xml"/>'
+    ct_xml += '<Default Extension="png" ContentType="image/png"/>'
+    ct_xml += '<Default Extension="jpg" ContentType="image/jpeg"/>'
+    ct_xml += '<Default Extension="jpeg" ContentType="image/jpeg"/>'
+    ct_xml += '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+    ct_xml += '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
+    if has_header_img:
+        ct_xml += '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>'
+    ct_xml += '</Types>'
+    _add('[Content_Types].xml', ct_xml)
+
+    _add('_rels/.rels', _make_rels(
+        ('rId1', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument', 'word/document.xml')
+    ))
+
+    styles_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    styles_xml += '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+    styles_xml += '<w:style w:type="table" w:styleId="LightShading-Accent1">'
+    styles_xml += '<w:name w:val="Light Shading Accent 1"/>'
+    styles_xml += '<w:style w:type="paragraph" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
+    styles_xml += '</w:styles>'
+    _add('word/styles.xml', styles_xml)
+
+    app_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    app_xml += '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">'
+    app_xml += '<Application>ControlObra</Application></Properties>'
+    _add('docProps/app.xml', app_xml)
+
+    core_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    core_xml += '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"'
+    core_xml += ' xmlns:dc="http://purl.org/dc/elements/1.1/">'
+    core_xml += '<dc:title>ControlObra</dc:title></cp:coreProperties>'
+    _add('docProps/core.xml', core_xml)
+
+    zf.close()
+    buf.seek(0)
+    return buf
+
+
 def _set_col_widths(table, widths):
     if not _HAS_DOCX:
         return
@@ -44,7 +445,11 @@ def _build_doc(doc_title, fecha_label, sections_data,
                asunto, proyecto_nombre, cui, clima, observaciones,
                show_fecha_col):
     if not _HAS_DOCX:
-        raise RuntimeError("python-docx no está instalado. No se puede generar el documento.")
+        return _build_docx_stdlib(doc_title, fecha_label, sections_data,
+                                   residente_nombre, residente_cargo,
+                                   responsable_nombre, responsable_cargo,
+                                   asunto, proyecto_nombre, cui, clima, observaciones,
+                                   show_fecha_col)
     doc = Document()
 
     section = doc.sections[0]

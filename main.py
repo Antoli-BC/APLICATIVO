@@ -457,6 +457,14 @@ class BaseScreen(Screen):
         layout.add_widget(Widget(size_hint_y=None, height=dp(8)))
 
     def _preguntar_guardado(self, doc, out_path, out_name):
+        def _save_to(path):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            if hasattr(doc, 'save'):
+                doc.save(path)
+            else:
+                with open(path, 'wb') as f:
+                    f.write(doc.read())
+                    doc.seek(0)
         content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
         content.bind(minimum_height=content.setter("height"))
         content.add_widget(colored_label("Reporte generado correctamente", YELLOW, size=14))
@@ -466,13 +474,11 @@ class BaseScreen(Screen):
         popup = Popup(title="Guardar reporte", content=content, size_hint=[0.85, None], height=dp(240))
         def _save_private(*a):
             popup.dismiss()
-            os.makedirs(REPORTS_DIR, exist_ok=True)
-            doc.save(out_path)
+            _save_to(out_path)
             info_popup("OK", f"Reporte guardado en:\n{out_path}")
         def _save_public(*a):
             popup.dismiss()
-            os.makedirs(REPORTS_DIR, exist_ok=True)
-            doc.save(out_path)
+            _save_to(out_path)
             pub = _save_report_public(out_path)
             msg = out_path
             if pub:
@@ -485,6 +491,43 @@ class BaseScreen(Screen):
         btn_row.add_widget(btn_public)
         content.add_widget(btn_row)
         content.add_widget(btn_cancel)
+        popup.open()
+
+    def _confirmar_importacion(self, items, replace, tipo, delete_func, save_func=None):
+        if not items:
+            info_popup("Info", "No se encontraron datos para importar")
+            return
+        if isinstance(items[0], tuple):
+            preview = "\n".join([f"  {i+1}. {str(item[0])}" for i, item in enumerate(items[:5])])
+        else:
+            preview = "\n".join([f"  {i+1}. {item}" for i, item in enumerate(items[:5])])
+        if len(items) > 5:
+            preview += f"\n  ... y {len(items)-5} mas"
+        action = "REEMPLAZAR" if replace else "AGREGAR"
+        content = BoxLayout(orientation="vertical", spacing=dp(6), padding=dp(10))
+        content.bind(minimum_height=content.setter("height"))
+        content.add_widget(colored_label(f"Se leerán {len(items)} {tipo}:", YELLOW, size=13))
+        content.add_widget(colored_label(preview, WHITE, size=11))
+        content.add_widget(colored_label(f"Modo: {action}", WHITE, size=11))
+        btn_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
+        popup = Popup(title="Confirmar importacion", content=content, size_hint=[0.9, None], height=dp(320))
+        def _confirmar(*a):
+            popup.dismiss()
+            if replace and delete_func:
+                delete_func()
+            if save_func:
+                save_func()
+            else:
+                for n, u in items:
+                    save_material_catalogo(n, u)
+            info_popup("OK", f"{len(items)} {tipo} importados")
+            self._switch_tab(tipo)
+        def _cancelar(*a):
+            popup.dismiss()
+            info_popup("Info", "Importacion cancelada")
+        btn_row.add_widget(cat_button("CONFIRMAR", _confirmar))
+        btn_row.add_widget(cat_button("CANCELAR", _cancelar))
+        content.add_widget(btn_row)
         popup.open()
 
 
@@ -933,7 +976,10 @@ class FotosScreen(BaseScreen):
         root.add_widget(colored_label("Descripcion"))
         root.add_widget(self.desc_input)
 
-        root.add_widget(cat_button("TOMAR FOTO", self._tomar_foto))
+        btn_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
+        btn_row.add_widget(cat_button("TOMAR FOTO", self._tomar_foto))
+        btn_row.add_widget(cat_button("GALERIA", self._seleccionar_foto))
+        root.add_widget(btn_row)
 
         root.add_widget(Label(size_hint_y=None, height=dp(8)))
         root.add_widget(section_title("FOTOS REGISTRADAS"))
@@ -961,6 +1007,46 @@ class FotosScreen(BaseScreen):
                 camera.take_picture(filename=filepath, on_complete=lambda p: self._foto_lista(p, fecha, sector, desc, filename))
             except Exception as e:
                 info_popup("Error", f"Camara no disponible: {e}")
+
+    def _seleccionar_foto(self, *args):
+        fecha = self.fecha_input.text.strip()
+        sector = self.sector_spinner.text
+        desc = self.desc_input.text.strip()
+        if platform == "android":
+            try:
+                from plyer import filechooser
+                filechooser.open_file(
+                    on_selection=lambda sel: self._importar_foto(sel[0], fecha, sector, desc) if sel else None,
+                    filters=["*.jpg", "*.jpeg", "*.png", "*.webp"])
+            except Exception as e:
+                info_popup("Error", f"Selector: {e}")
+        else:
+            content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
+            content.bind(minimum_height=content.setter("height"))
+            content.add_widget(colored_label("Selecciona una imagen", YELLOW, size=14))
+            fc = FileChooserListView(path=os.path.expanduser("~"), size_hint_y=None, height=dp(300),
+                                      filters=["*.jpg", "*.jpeg", "*.png", "*.webp"])
+            content.add_widget(fc)
+            btn = cat_button("SELECCIONAR", lambda x: [popup.dismiss(), self._importar_foto(fc.selection[0], fecha, sector, desc)] if fc.selection else None)
+            content.add_widget(btn)
+            popup = Popup(title="Seleccionar foto", content=content, size_hint=[0.95, 0.8])
+            popup.open()
+
+    def _importar_foto(self, src_path, fecha, sector, desc):
+        if not src_path:
+            return
+        try:
+            src_path = _resolve_android_path(src_path)
+            import shutil
+            filename = f"{fecha}_{sector.replace(' ','_')}_{datetime.now().strftime('%H%M%S')}{os.path.splitext(src_path)[1] or '.jpg'}"
+            dst_path = os.path.join(PHOTOS_DIR, filename)
+            os.makedirs(PHOTOS_DIR, exist_ok=True)
+            shutil.copy2(src_path, dst_path)
+            save_photo(filename, fecha, sector, desc, dst_path)
+            info_popup("OK", "Foto importada")
+            self._refresh_fotos()
+        except Exception as e:
+            info_popup("Error", f"Error al importar: {e}")
 
     def _foto_lista(self, path, fecha, sector, desc, filename):
         if path and os.path.exists(path):
@@ -1487,8 +1573,6 @@ class AdminScreen(BaseScreen):
     def _do_import_mat_android(self, filepath, replace):
         try:
             filepath = _resolve_android_path(filepath)
-            if replace:
-                delete_all_materiales_catalogo()
             import openpyxl
             wb = openpyxl.load_workbook(filepath, read_only=True)
             ws = wb.active
@@ -1498,15 +1582,15 @@ class AdminScreen(BaseScreen):
                 wb.close(); return
             col_nom = headers.index("NOMBRE")
             col_uni = headers.index("UNIDAD")
-            count = 0
+            items = []
             for row in ws.iter_rows(min_row=2, values_only=True):
                 nombre = str(row[col_nom] or "").strip()
                 unidad = str(row[col_uni] or "").strip()
                 if nombre and unidad:
-                    save_material_catalogo(nombre, unidad); count += 1
+                    items.append((nombre, unidad))
             wb.close()
-            info_popup("OK", f"{count} materiales importados")
-            self._switch_tab("materiales")
+            self._confirmar_importacion(items, replace, "materiales",
+                                        lambda: [delete_all_materiales_catalogo()] if replace else None)
         except Exception as e:
             info_popup("Error", f"Error al importar: {e}")
 
@@ -1519,29 +1603,25 @@ class AdminScreen(BaseScreen):
             info_popup("Error", "Debe ser archivo .xlsx")
             return
         try:
-            if replace:
-                delete_all_materiales_catalogo()
             import openpyxl
             wb = openpyxl.load_workbook(filepath, read_only=True)
             ws = wb.active
             headers = [str(cell.value or "").strip().upper() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
             if "NOMBRE" not in headers or "UNIDAD" not in headers:
                 info_popup("Error", "El Excel debe tener columnas: Nombre, Unidad")
-                wb.close()
-                return
+                wb.close(); return
             col_nom = headers.index("NOMBRE")
             col_uni = headers.index("UNIDAD")
-            count = 0
+            items = []
             for row in ws.iter_rows(min_row=2, values_only=True):
                 nombre = str(row[col_nom] or "").strip()
                 unidad = str(row[col_uni] or "").strip()
                 if nombre and unidad:
-                    save_material_catalogo(nombre, unidad)
-                    count += 1
+                    items.append((nombre, unidad))
             wb.close()
             popup.dismiss()
-            info_popup("OK", f"{count} materiales importados")
-            self._switch_tab("materiales")
+            self._confirmar_importacion(items, replace, "materiales",
+                                        lambda: [delete_all_materiales_catalogo()] if replace else None)
         except Exception as e:
             info_popup("Error", f"Error al importar: {e}")
 
@@ -1585,8 +1665,6 @@ class AdminScreen(BaseScreen):
     def _do_import_par_android(self, filepath, replace):
         try:
             filepath = _resolve_android_path(filepath)
-            if replace:
-                delete_all_partidas()
             import openpyxl
             wb = openpyxl.load_workbook(filepath, read_only=True)
             ws = wb.active
@@ -1595,7 +1673,7 @@ class AdminScreen(BaseScreen):
                 info_popup("Error", "El Excel debe tener columna: Nombre")
                 wb.close(); return
             col_idx = {h: i for i, h in enumerate(headers)}
-            count = 0
+            items = []
             for row in ws.iter_rows(min_row=2, values_only=True):
                 nombre = str(row[col_idx["NOMBRE"]] or "").strip() if "NOMBRE" in col_idx and col_idx["NOMBRE"] < len(row) else ""
                 if not nombre:
@@ -1604,11 +1682,19 @@ class AdminScreen(BaseScreen):
                 desc = str(row[col_idx["DESCRIPCION"]] or "").strip() if "DESCRIPCION" in col_idx and col_idx["DESCRIPCION"] < len(row) else ""
                 uni = str(row[col_idx["UNIDAD"]] or "").strip() if "UNIDAD" in col_idx and col_idx["UNIDAD"] < len(row) else ""
                 met = float(row[col_idx["METRADO"]]) if "METRADO" in col_idx and col_idx["METRADO"] < len(row) and row[col_idx["METRADO"]] is not None else 0.0
-                save_partida(cod, nombre, desc, None, uni, met)
-                count += 1
+                items.append((cod, nombre, desc, uni, met))
             wb.close()
-            info_popup("OK", f"{count} partidas importados")
-            self._switch_tab("partidas")
+            names = []
+            for it in items:
+                tag = it[1]
+                if it[0]:
+                    tag = f"{it[0]} - {tag}"
+                names.append(tag)
+            def _save_pars():
+                for it in items:
+                    save_partida(it[0], it[1], it[2], None, it[3], it[4])
+            self._confirmar_importacion(names, replace, "partidas",
+                                        lambda: delete_all_partidas(), _save_pars)
         except Exception as e:
             info_popup("Error", f"Error al importar: {e}")
 
@@ -1621,18 +1707,15 @@ class AdminScreen(BaseScreen):
             info_popup("Error", "Debe ser archivo .xlsx")
             return
         try:
-            if replace:
-                delete_all_partidas()
             import openpyxl
             wb = openpyxl.load_workbook(filepath, read_only=True)
             ws = wb.active
             headers = [str(cell.value or "").strip().upper() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
             if "NOMBRE" not in headers:
                 info_popup("Error", "El Excel debe tener columna: Nombre")
-                wb.close()
-                return
+                wb.close(); return
             col_idx = {h: i for i, h in enumerate(headers)}
-            count = 0
+            items = []
             for row in ws.iter_rows(min_row=2, values_only=True):
                 nombre = str(row[col_idx["NOMBRE"]] or "").strip() if "NOMBRE" in col_idx and col_idx["NOMBRE"] < len(row) else ""
                 if not nombre:
@@ -1641,12 +1724,20 @@ class AdminScreen(BaseScreen):
                 desc = str(row[col_idx["DESCRIPCION"]] or "").strip() if "DESCRIPCION" in col_idx and col_idx["DESCRIPCION"] < len(row) else ""
                 uni = str(row[col_idx["UNIDAD"]] or "").strip() if "UNIDAD" in col_idx and col_idx["UNIDAD"] < len(row) else ""
                 met = float(row[col_idx["METRADO"]]) if "METRADO" in col_idx and col_idx["METRADO"] < len(row) and row[col_idx["METRADO"]] is not None else 0.0
-                save_partida(cod, nombre, desc, None, uni, met)
-                count += 1
+                items.append((cod, nombre, desc, uni, met))
             wb.close()
             popup.dismiss()
-            info_popup("OK", f"{count} partidas importados")
-            self._switch_tab("partidas")
+            names = []
+            for it in items:
+                tag = it[1]
+                if it[0]:
+                    tag = f"{it[0]} - {tag}"
+                names.append(tag)
+            def _save_pars():
+                for it in items:
+                    save_partida(it[0], it[1], it[2], None, it[3], it[4])
+            self._confirmar_importacion(names, replace, "partidas",
+                                        lambda: delete_all_partidas(), _save_pars)
         except Exception as e:
             info_popup("Error", f"Error al importar: {e}")
 
