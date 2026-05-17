@@ -300,14 +300,14 @@ class BaseScreen(Screen):
         super().__init__(**kw)
         self.app = App.get_running_app()
 
-def add_header(self, layout):
-    layout.add_widget(title_label("CONTROL DE OBRA", size=20))
-    line = Widget(size_hint_y=None, height=dp(2))
-    with line.canvas:
-        Color(1, 0.804, 0, 1)
-        Rectangle(pos=[0, 0], size=[Window.width, dp(2)])
-    layout.add_widget(line)
-    layout.add_widget(Widget(size_hint_y=None, height=dp(8)))
+    def add_header(self, layout):
+        layout.add_widget(title_label("CONTROL DE OBRA", size=20))
+        line = Widget(size_hint_y=None, height=dp(2))
+        with line.canvas:
+            Color(1, 0.804, 0, 1)
+            Rectangle(pos=[0, 0], size=[Window.width, dp(2)])
+        layout.add_widget(line)
+        layout.add_widget(Widget(size_hint_y=None, height=dp(8)))
 
 
 class MenuScreen(BaseScreen):

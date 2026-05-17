@@ -9,7 +9,7 @@ source.include_exts = py,png,jpg,jpeg,gif,svg,xlsx,txt,sqlite
 
 version = 1.2.0
 
-requirements = python3,kivy==2.3.1,plyer==2.1.0,openpyxl==3.1.5,python-docx==1.1.2
+requirements = python3,kivy==2.3.1,plyer==2.1.0,openpyxl==3.1.5,python-docx==1.1.2,Pillow==10.3.0,pyjnius==1.6.1
 orientation = portrait
 fullscreen = 0
 
@@ -23,7 +23,7 @@ android.ndk = 25b
 android.accept_sdk_license = True
 android.archs = arm64-v8a
 
-android.permissions = CAMERA, INTERNET, READ_MEDIA_IMAGES
+android.permissions = CAMERA, INTERNET, READ_MEDIA_IMAGES, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
 android.window_softinput_mode = adjustResize
 android.gradle_dependencies = androidx.appcompat:appcompat:1.6.1
 android.add_src = javasrc
