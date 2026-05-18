@@ -121,15 +121,18 @@ def _save_report_public(src_path):
         return None
     try:
         from android import api_version
+        filename = os.path.basename(src_path)
         if api_version < 29:
-            return src_path
+            docs_dir = f"/storage/emulated/0/Documents/ControlObra"
+            os.makedirs(docs_dir, exist_ok=True)
+            dst = os.path.join(docs_dir, filename)
+            shutil.copy2(src_path, dst)
+            return dst
         from jnius import autoclass, cast
         PythonActivity = autoclass('org.kivy.android.PythonActivity')
         ContentValues = autoclass('android.content.ContentValues')
-        MediaStore = autoclass('android.provider.MediaStore')
         downloads = autoclass('android.provider.MediaStore$Downloads')
         activity = PythonActivity.mActivity
-        filename = os.path.basename(src_path)
         values = ContentValues()
         values.put("_display_name", filename)
         values.put("mime_type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
@@ -646,26 +649,12 @@ class BaseScreen(Screen):
                 with open(path, 'wb') as f:
                     f.write(doc.read())
                     doc.seek(0)
-        content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
-        content.bind(minimum_height=content.setter("height"))
-        content.add_widget(colored_label("Reporte generado correctamente", YELLOW, size=14))
-        content.add_widget(colored_label("¿Desea guardar el informe?", WHITE, size=12))
-        content.add_widget(colored_label("Seleccione la carpeta donde desea guardarlo", WHITE, size=11))
-        content.add_widget(Widget(size_hint_y=None, height=dp(6)))
-        btn_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
-        popup = Popup(title="Guardar reporte", content=content, size_hint=[0.85, None], height=dp(240))
-        def _save_custom(*a):
-            popup.dismiss()
-            folder_uri = get_config("save_folder", "")
-            if folder_uri:
-                self._on_custom_folder(folder_uri, doc, out_path, out_name)
-            else:
-                _pick_save_folder(lambda uri_str: self._on_custom_folder(uri_str, doc, out_path, out_name))
-        btn_custom = cat_button("ELEGIR CARPETA", _save_custom)
-        btn_cancel = cat_button("CANCELAR", lambda x: popup.dismiss())
-        content.add_widget(btn_custom)
-        content.add_widget(btn_cancel)
-        popup.open()
+        _save_to(out_path)
+        pub_uri = _save_report_public(out_path)
+        if pub_uri:
+            self._mostrar_guardado_exitoso(out_name, pub_uri)
+        else:
+            info_popup("Info", f"Reporte guardado en:\n{out_path}")
 
     def _mostrar_guardado_exitoso(self, filename, uri_result):
         content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(15))
@@ -2160,16 +2149,9 @@ class AdminScreen(BaseScreen):
 
         tc.add_widget(Widget(size_hint_y=None, height=dp(8)))
         tc.add_widget(colored_label("ALMACENAMIENTO", YELLOW, bold=True, size=13))
-        guardar_cfg = config.get("save_folder", "")
-        if guardar_cfg:
-            friendly = _friendly_folder_name(guardar_cfg)
-            tc.add_widget(colored_label(f"Carpeta: {friendly}", WHITE, size=11))
-        else:
-            tc.add_widget(colored_label("Carpeta: Documents/ControlObra (por defecto)", WHITE, size=11))
-        btn_folder = cat_button("SELECCIONAR CARPETA DE GUARDADO",
-                                 lambda x: _pick_save_folder(lambda u: self._on_folder_picked(u)),
-                                 height=dp(36))
-        tc.add_widget(btn_folder)
+        tc.add_widget(colored_label("Los reportes se guardan en:", WHITE, size=11))
+        tc.add_widget(colored_label("Documents/ControlObra/", WHITE, size=11, bold=True))
+        tc.add_widget(colored_label("(visible en la app Archivos)", YELLOW, size=10))
 
         tc.add_widget(Widget(size_hint_y=None, height=dp(8)))
         tc.add_widget(colored_label("ENCABEZADO DEL REPORTE", YELLOW, bold=True, size=13))
