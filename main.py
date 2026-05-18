@@ -224,6 +224,22 @@ def _save_public_saf(src_path, folder_uri_str):
         return _save_report_public(src_path)
 
 
+def _friendly_folder_name(uri_str):
+    if not uri_str or not uri_str.startswith("content://"):
+        return uri_str
+    try:
+        if "tree/" in uri_str:
+            path_part = uri_str.split("tree/", 1)[1]
+            if "%3A" in path_part:
+                path_part = path_part.split("%3A", 1)[1]
+            from urllib.parse import unquote
+            path_part = unquote(path_part.replace("%2F", "/"))
+            return path_part
+        return uri_str
+    except Exception:
+        return uri_str
+
+
 def _open_file_uri(uri_str):
     if platform != "android" or not uri_str:
         return
@@ -2146,7 +2162,8 @@ class AdminScreen(BaseScreen):
         tc.add_widget(colored_label("ALMACENAMIENTO", YELLOW, bold=True, size=13))
         guardar_cfg = config.get("save_folder", "")
         if guardar_cfg:
-            tc.add_widget(colored_label(f"Carpeta: {guardar_cfg}", WHITE, size=11))
+            friendly = _friendly_folder_name(guardar_cfg)
+            tc.add_widget(colored_label(f"Carpeta: {friendly}", WHITE, size=11))
         else:
             tc.add_widget(colored_label("Carpeta: Documents/ControlObra (por defecto)", WHITE, size=11))
         btn_folder = cat_button("SELECCIONAR CARPETA DE GUARDADO",
