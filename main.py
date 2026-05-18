@@ -207,10 +207,14 @@ def _save_public_saf(src_path, folder_uri_str):
         activity = PythonActivity.mActivity
         resolver = activity.getContentResolver()
         tree_uri = Uri.parse(folder_uri_str)
-        doc_id = DocumentsContract.getTreeDocumentId(tree_uri)
-        doc_uri = DocumentsContract.buildDocumentUriUsingTree(tree_uri, doc_id + "%2F" + os.path.basename(src_path))
+        mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        doc_uri = DocumentsContract.createDocument(resolver, tree_uri, mime, os.path.basename(src_path))
+        if doc_uri is None:
+            return _save_report_public(src_path)
         with open(src_path, 'rb') as src:
             pfd = resolver.openFileDescriptor(doc_uri, "w")
+            if pfd is None:
+                return _save_report_public(src_path)
             pfd = cast('android.os.ParcelFileDescriptor', pfd)
             fd = pfd.detachFd()
             with os.fdopen(fd, 'wb') as dst:
@@ -259,15 +263,8 @@ def init_dirs():
         except Exception:
             PHOTOS_BASE = None
         if not PHOTOS_BASE:
-            try:
-                from plyer import storagepath
-                ext_dir = storagepath.get_external_storage_dir()
-                pkg = "org.obra.control.controlobra"
-                PHOTOS_BASE = os.path.join(str(ext_dir), "Android", "data", pkg, "files", "Anotaciones_Obra") if ext_dir else None
-            except Exception:
-                PHOTOS_BASE = None
-        if not PHOTOS_BASE:
-            PHOTOS_BASE = os.path.join(os.path.dirname(__file__), "Anotaciones_Obra")
+            import tempfile
+            PHOTOS_BASE = os.path.join(tempfile.gettempdir(), "Anotaciones_Obra")
     else:
         PHOTOS_BASE = os.path.join(os.path.dirname(__file__), "Anotaciones_Obra")
     PHOTOS_DIR = os.path.join(PHOTOS_BASE, "Fotos")
@@ -312,36 +309,37 @@ def _android_camera(filepath, on_success):
         from android import api_version
         PythonActivity = autoclass('org.kivy.android.PythonActivity')
         Intent = autoclass('android.content.Intent')
-        MediaStore = autoclass('android.provider.MediaStore')
-        ImagesMedia = autoclass('android.provider.MediaStore$Images$Media')
         activity = PythonActivity.mActivity
-        intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+        intent = Intent("android.media.action.IMAGE_CAPTURE")
 
+        content_uri = None
         if api_version >= 24:
-            ContentValues = autoclass('android.content.ContentValues')
-            filename_only = os.path.basename(filepath)
-            values = ContentValues()
-            values.put("_display_name", filename_only)
-            values.put("mime_type", "image/jpeg")
-            if api_version >= 29:
-                values.put("relative_path", "Pictures/Anotaciones_Obra")
-                values.put("is_pending", 1)
-            content_uri = activity.getContentResolver().insert(
-                ImagesMedia.EXTERNAL_CONTENT_URI, values)
-            if content_uri is None:
-                raise RuntimeError("No se pudo crear archivo en la galería")
-            intent.putExtra(MediaStore.EXTRA_OUTPUT, cast('android.os.Parcelable', content_uri))
-            intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            _ANDROID_PENDING = lambda rc, rcode, i: _after_camera_store(
-                rc, rcode, i, content_uri, filepath, on_success, api_version)
-        else:
+            try:
+                ImagesMedia = autoclass('android.provider.MediaStore$Images$Media')
+                ContentValues = autoclass('android.content.ContentValues')
+                filename_only = os.path.basename(filepath)
+                values = ContentValues()
+                values.put("_display_name", filename_only)
+                values.put("mime_type", "image/jpeg")
+                if api_version >= 29:
+                    values.put("relative_path", "Pictures/Anotaciones_Obra")
+                    values.put("is_pending", 1)
+                content_uri = activity.getContentResolver().insert(
+                    ImagesMedia.EXTERNAL_CONTENT_URI, values)
+            except Exception:
+                content_uri = None
+
+        if content_uri is None:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
             Uri = autoclass('android.net.Uri')
             File = autoclass('java.io.File')
-            uri = Uri.fromFile(File(filepath))
-            intent.putExtra(MediaStore.EXTRA_OUTPUT, cast('android.os.Parcelable', uri))
-            _ANDROID_PENDING = lambda rc, rcode, i: on_success(filepath) if rcode == -1 else None
+            content_uri = Uri.fromFile(File(filepath))
 
+        intent.putExtra("output", cast('android.os.Parcelable', content_uri))
+        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        _ANDROID_PENDING = lambda rc, rcode, i: _after_camera_store(
+            rc, rcode, i, content_uri, filepath, on_success, api_version)
         activity.startActivityForResult(intent, 1001)
     except Exception as e:
         info_popup("Error", f"Camara no disponible: {e}")
@@ -374,31 +372,44 @@ def _after_camera_store(request_code, result_code, intent, content_uri, dest_pat
     if result_code != -1:
         return
     try:
-        from jnius import autoclass, cast
         import shutil
-        PythonActivity = autoclass('org.kivy.android.PythonActivity')
-        ContentValues = autoclass('android.content.ContentValues')
-        activity = PythonActivity.mActivity
-        resolver = activity.getContentResolver()
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        pfd = resolver.openFileDescriptor(content_uri, "r")
-        pfd = cast('android.os.ParcelFileDescriptor', pfd)
-        fd = pfd.detachFd()
-        with os.fdopen(fd, 'rb') as src:
-            with open(dest_path, 'wb') as dst:
-                shutil.copyfileobj(src, dst)
-        if api_ver >= 29:
-            vals = ContentValues()
-            vals.put("is_pending", 0)
-            resolver.update(content_uri, vals, None, None)
+        uri_str = str(content_uri)
+        if uri_str.startswith("content://"):
+            from jnius import autoclass, cast
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            ContentValues = autoclass('android.content.ContentValues')
+            activity = PythonActivity.mActivity
+            resolver = activity.getContentResolver()
+            try:
+                pfd = resolver.openFileDescriptor(content_uri, "r")
+                pfd = cast('android.os.ParcelFileDescriptor', pfd)
+                fd = pfd.detachFd()
+                with os.fdopen(fd, 'rb') as src:
+                    with open(dest_path, 'wb') as dst:
+                        shutil.copyfileobj(src, dst)
+                if api_ver >= 29:
+                    try:
+                        vals = ContentValues()
+                        vals.put("is_pending", 0)
+                        resolver.update(content_uri, vals, None, None)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        elif os.path.exists(uri_str):
+            shutil.copy2(uri_str, dest_path)
+        elif os.path.exists(dest_path):
+            pass
         else:
-            resolver.delete(content_uri, None, None)
-        on_success(dest_path)
+            pass
+        if os.path.exists(dest_path):
+            on_success(dest_path)
     except Exception as e:
         info_popup("Error", f"Foto no almacenada: {e}")
 
 
-def _android_pick_file(mime_type, on_result):
+def _android_pick_file(mime_type, on_result, mime_fallback=None):
     _setup_android_handler()
     global _ANDROID_PENDING
     try:
@@ -408,7 +419,9 @@ def _android_pick_file(mime_type, on_result):
         activity = PythonActivity.mActivity
         intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
         intent.addCategory(Intent.CATEGORY_OPENABLE)
-        intent.setType("*/*")
+        intent.setType(mime_type)
+        if mime_fallback:
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, mime_fallback)
         _ANDROID_PENDING = lambda rc, rcode, i: _handle_file_picked(rc, rcode, i, on_result)
         activity.startActivityForResult(intent, 1002)
     except Exception as e:
@@ -417,28 +430,33 @@ def _android_pick_file(mime_type, on_result):
 
 def _handle_file_picked(request_code, result_code, intent, on_result):
     if result_code != -1 or not intent:
+        on_result(None)
         return
     try:
         from jnius import autoclass, cast
         import shutil
         uri = intent.getData()
         if not uri:
+            on_result(None)
             return
         uri = cast('android.net.Uri', uri)
         activity = autoclass('org.kivy.android.PythonActivity').mActivity
-        pfd = activity.getContentResolver().openFileDescriptor(uri, "r")
+        resolver = activity.getContentResolver()
+        cName = uri.getLastPathSegment() or "imported_file"
+        pfd = resolver.openFileDescriptor(uri, "r")
         pfd = cast('android.os.ParcelFileDescriptor', pfd)
         fd = pfd.detachFd()
         base = PHOTOS_BASE or os.path.join(os.path.dirname(__file__), "Anotaciones_Obra")
         temp_dir = os.path.join(base, "temp")
         os.makedirs(temp_dir, exist_ok=True)
-        temp_path = os.path.join(temp_dir, "imported_file.xlsx")
+        temp_path = os.path.join(temp_dir, cName)
         with os.fdopen(fd, 'rb') as src:
             with open(temp_path, 'wb') as dst:
                 shutil.copyfileobj(src, dst)
         on_result(temp_path)
     except Exception as e:
         info_popup("Error", f"Al leer archivo: {e}")
+        on_result(None)
 
 
 def colored_label(text, color=WHITE, bold=False, size=14, halign="left"):
@@ -580,7 +598,11 @@ class BaseScreen(Screen):
             info_popup("OK", f"Reporte guardado en:\n{msg}")
         def _save_custom(*a):
             popup.dismiss()
-            _pick_save_folder(lambda uri_str: self._on_custom_folder(uri_str, doc, out_path, out_name))
+            folder_uri = get_config("save_folder", "")
+            if folder_uri:
+                self._on_custom_folder(folder_uri, doc, out_path, out_name)
+            else:
+                _pick_save_folder(lambda uri_str: self._on_custom_folder(uri_str, doc, out_path, out_name))
         btn_private = cat_button("SOLO EN LA APP", _save_private)
         btn_public = cat_button("EN DOCUMENTOS", _save_public)
         btn_custom = cat_button("ELEGIR CARPETA", _save_custom)
@@ -602,7 +624,11 @@ class BaseScreen(Screen):
         if result:
             info_popup("OK", f"Guardado en carpeta seleccionada")
         else:
-            info_popup("Error", "No se pudo guardar en la carpeta seleccionada.\nGuardado en almacenamiento interno.")
+            pub = _save_report_public(out_path)
+            if pub:
+                info_popup("OK", f"Guardado en: {pub}")
+            else:
+                info_popup("Info", f"Guardado en:\n{out_path}")
 
     def _confirmar_importacion(self, items, replace, tipo, delete_func, save_func=None):
         if not items:
@@ -1668,13 +1694,9 @@ class AdminScreen(BaseScreen):
 
     def _import_mat_pick_file(self, replace):
         if platform == "android":
-            try:
-                from plyer import filechooser
-                filechooser.open_file(
-                    on_selection=lambda sel: self._do_import_mat_android(sel[0], replace) if sel else info_popup("Info", "No se seleccionó archivo"),
-                    filters=["*.xlsx", "*.xls"])
-            except Exception as e:
-                info_popup("Error", f"Selector: {e}")
+            _android_pick_file("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               lambda p: self._do_import_mat_android(p, replace) if p else info_popup("Info", "No se seleccionó archivo"),
+                               mime_fallback=["application/vnd.ms-excel"])
         else:
             content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
             content.bind(minimum_height=content.setter("height"))
@@ -1760,13 +1782,9 @@ class AdminScreen(BaseScreen):
 
     def _import_par_pick_file(self, replace):
         if platform == "android":
-            try:
-                from plyer import filechooser
-                filechooser.open_file(
-                    on_selection=lambda sel: self._do_import_par_android(sel[0], replace) if sel else info_popup("Info", "No se seleccionó archivo"),
-                    filters=["*.xlsx", "*.xls"])
-            except Exception as e:
-                info_popup("Error", f"Selector: {e}")
+            _android_pick_file("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               lambda p: self._do_import_par_android(p, replace) if p else info_popup("Info", "No se seleccionó archivo"),
+                               mime_fallback=["application/vnd.ms-excel"])
         else:
             content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
             content.bind(minimum_height=content.setter("height"))
@@ -2007,7 +2025,74 @@ class AdminScreen(BaseScreen):
         tc.add_widget(self.cfg_proy)
         tc.add_widget(colored_label("CUI"))
         tc.add_widget(self.cfg_cui)
+
+        tc.add_widget(Widget(size_hint_y=None, height=dp(8)))
+        tc.add_widget(colored_label("ALMACENAMIENTO", YELLOW, bold=True, size=13))
+        guardar_cfg = config.get("save_folder", "")
+        if guardar_cfg:
+            tc.add_widget(colored_label(f"Carpeta: {guardar_cfg}", WHITE, size=11))
+        else:
+            tc.add_widget(colored_label("Carpeta: Documents/ControlObra (por defecto)", WHITE, size=11))
+        btn_folder = cat_button("SELECCIONAR CARPETA DE GUARDADO",
+                                 lambda x: _pick_save_folder(lambda u: self._on_folder_picked(u)),
+                                 height=dp(36))
+        tc.add_widget(btn_folder)
+
+        tc.add_widget(Widget(size_hint_y=None, height=dp(8)))
+        tc.add_widget(colored_label("ENCABEZADO DEL REPORTE", YELLOW, bold=True, size=13))
+        hdr_cfg = config.get("header_image", "")
+        if hdr_cfg and os.path.exists(hdr_cfg):
+            tc.add_widget(colored_label(f"Imagen: {os.path.basename(hdr_cfg)}", WHITE, size=11))
+        else:
+            tc.add_widget(colored_label("Imagen: ENCABEZADO.png (por defecto)", WHITE, size=11))
+        btn_header = cat_button("SELECCIONAR IMAGEN PARA ENCABEZADO",
+                                 lambda x: self._pick_header_image(),
+                                 height=dp(36))
+        tc.add_widget(btn_header)
+
+        tc.add_widget(Widget(size_hint_y=None, height=dp(8)))
         tc.add_widget(cat_button("GUARDAR CONFIGURACION", self._save_config, height=dp(40)))
+
+    def _on_folder_picked(self, uri_str):
+        if uri_str:
+            set_config("save_folder", uri_str)
+            info_popup("OK", "Carpeta de guardado seleccionada")
+        else:
+            info_popup("Info", "No se seleccionó carpeta")
+
+    def _pick_header_image(self):
+        if platform == "android":
+            try:
+                from plyer import filechooser
+                filechooser.open_file(
+                    on_selection=lambda sel: self._on_header_selected(sel[0] if sel else None),
+                    filters=["*.png", "*.jpg", "*.jpeg"])
+            except Exception as e:
+                info_popup("Error", f"Selector: {e}")
+        else:
+            content = BoxLayout(orientation="vertical", spacing=dp(10), size_hint_y=None)
+            content.bind(minimum_height=content.setter("height"))
+            content.add_widget(colored_label("Selecciona imagen para encabezado", YELLOW, size=14))
+            fc = FileChooserListView(path=os.path.expanduser("~"), size_hint_y=None, height=dp(300),
+                                      filters=["*.png", "*.jpg", "*.jpeg"])
+            content.add_widget(fc)
+            pp = Popup(title="Encabezado", content=content, size_hint=[0.95, 0.8])
+            btn = cat_button("SELECCIONAR", lambda x: [pp.dismiss(), self._on_header_selected(fc.selection[0] if fc.selection else None)])
+            content.add_widget(btn)
+            pp.open()
+
+    def _on_header_selected(self, path):
+        if path and os.path.exists(path):
+            from shutil import copy2
+            dst = os.path.join(os.path.dirname(__file__), "CUSTOM_ENCABEZADO.png")
+            copy2(path, dst)
+            set_config("header_image", dst)
+            # Also copy over ENCABEZADO.png
+            import shutil
+            shutil.copy2(dst, os.path.join(os.path.dirname(__file__), "ENCABEZADO.png"))
+            info_popup("OK", "Imagen de encabezado actualizada")
+        else:
+            info_popup("Info", "No se seleccionó imagen")
 
     def _save_config(self, *args):
         set_config("responsable_nombre", self.cfg_resp_nom.text)

@@ -38,29 +38,37 @@ def _fmt_fecha_larga(fecha_str):
 def _img_dims(path):
     try:
         with open(path, 'rb') as f:
-            h = f.read(32)
+            h = f.read(8)
             if h[:8] == b'\x89PNG\r\n\x1a\n':
-                w, h = struct.unpack('>II', h[16:24])
-            elif h[:2] in (b'\xff\xd8',):
-                f.seek(0)
-                while True:
-                    b = f.read(2)
-                    if not b or len(b) < 2:
-                        return None
-                    marker = struct.unpack('>H', b)[0]
-                    if marker == 0xffc0 or marker == 0xffc2:
-                        f.read(3)
-                        h_b, w_b = struct.unpack('>HH', f.read(4))
-                        w, h = w_b, h_b
-                        break
-                    else:
-                        ln = struct.unpack('>H', f.read(2))[0]
-                        f.seek(ln - 2, 1)
-                else:
-                    return None
-            else:
+                f.read(4)
+                f.read(4)
+                w, h = struct.unpack('>II', f.read(8))
+                return w, h
+            if h[:2] != b'\xff\xd8':
                 return None
-            return w, h
+            f.seek(2)
+            while True:
+                b = f.read(1)
+                while b and b[0] == 0xFF:
+                    b = f.read(1)
+                if not b:
+                    return None
+                marker = b[0]
+                if marker in (0xC0, 0xC2):
+                    f.read(3)
+                    h_b, w_b = struct.unpack('>HH', f.read(4))
+                    return w_b, h_b
+                if marker in (0xD9, 0xDA):
+                    return None
+                if marker in (0x01,) or (0xD0 <= marker <= 0xD7) or marker == 0xD8:
+                    continue
+                ln_data = f.read(2)
+                if len(ln_data) < 2:
+                    return None
+                ln = struct.unpack('>H', ln_data)[0]
+                if ln < 2:
+                    return None
+                f.seek(ln - 2, 1)
     except Exception:
         return None
 
