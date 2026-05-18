@@ -323,14 +323,14 @@ def _android_camera(filepath, on_success):
         from android import api_version
         PythonActivity = autoclass('org.kivy.android.PythonActivity')
         Intent = autoclass('android.content.Intent')
+        Uri = autoclass('android.net.Uri')
+        ContentValues = autoclass('android.content.ContentValues')
         activity = PythonActivity.mActivity
         intent = Intent("android.media.action.IMAGE_CAPTURE")
 
         content_uri = None
         if api_version >= 24:
             try:
-                ImagesMedia = autoclass('android.provider.MediaStore$Images$Media')
-                ContentValues = autoclass('android.content.ContentValues')
                 filename_only = os.path.basename(filepath)
                 values = ContentValues()
                 values.put("_display_name", filename_only)
@@ -338,14 +338,24 @@ def _android_camera(filepath, on_success):
                 if api_version >= 29:
                     values.put("relative_path", "Pictures/Anotaciones_Obra")
                     values.put("is_pending", 1)
-                content_uri = activity.getContentResolver().insert(
-                    ImagesMedia.EXTERNAL_CONTENT_URI, values)
+                images_uri = Uri.parse("content://media/external/images/media")
+                content_uri = activity.getContentResolver().insert(images_uri, values)
+            except Exception:
+                content_uri = None
+
+        if content_uri is None and api_version >= 24:
+            try:
+                filename_only = os.path.basename(filepath)
+                values = ContentValues()
+                values.put("_display_name", filename_only)
+                values.put("mime_type", "image/jpeg")
+                images_uri = Uri.parse("content://media/external/images/media")
+                content_uri = activity.getContentResolver().insert(images_uri, values)
             except Exception:
                 content_uri = None
 
         if content_uri is None:
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            Uri = autoclass('android.net.Uri')
             File = autoclass('java.io.File')
             content_uri = Uri.fromFile(File(filepath))
 
@@ -411,12 +421,10 @@ def _after_camera_store(request_code, result_code, intent, content_uri, dest_pat
                         pass
             except Exception:
                 pass
-        elif os.path.exists(uri_str):
-            shutil.copy2(uri_str, dest_path)
-        elif os.path.exists(dest_path):
-            pass
-        else:
-            pass
+        elif uri_str.startswith("file://"):
+            src_file = uri_str[7:]
+            if os.path.exists(src_file):
+                shutil.copy2(src_file, dest_path)
         if os.path.exists(dest_path):
             on_success(dest_path)
     except Exception as e:
