@@ -403,19 +403,22 @@ def _after_camera_store(request_code, result_code, intent, content_uri, dest_pat
         import shutil
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
         uri_str = str(content_uri)
+        saved = False
+
         if uri_str.startswith("content://"):
-            from jnius import autoclass, cast
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-            ContentValues = autoclass('android.content.ContentValues')
-            activity = PythonActivity.mActivity
-            resolver = activity.getContentResolver()
             try:
+                from jnius import autoclass, cast
+                PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                ContentValues = autoclass('android.content.ContentValues')
+                activity = PythonActivity.mActivity
+                resolver = activity.getContentResolver()
                 pfd = resolver.openFileDescriptor(content_uri, "r")
                 pfd = cast('android.os.ParcelFileDescriptor', pfd)
                 fd = pfd.detachFd()
                 with os.fdopen(fd, 'rb') as src:
                     with open(dest_path, 'wb') as dst:
                         shutil.copyfileobj(src, dst)
+                saved = True
                 if api_ver >= 29:
                     try:
                         vals = ContentValues()
@@ -425,12 +428,38 @@ def _after_camera_store(request_code, result_code, intent, content_uri, dest_pat
                         pass
             except Exception:
                 pass
-        elif uri_str.startswith("file://"):
+
+        if not saved and intent:
+            try:
+                from jnius import autoclass, cast
+                data_uri = intent.getData()
+                if data_uri:
+                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                    activity = PythonActivity.mActivity
+                    resolver = activity.getContentResolver()
+                    pfd = resolver.openFileDescriptor(data_uri, "r")
+                    pfd = cast('android.os.ParcelFileDescriptor', pfd)
+                    fd = pfd.detachFd()
+                    with os.fdopen(fd, 'rb') as src:
+                        with open(dest_path, 'wb') as dst:
+                            shutil.copyfileobj(src, dst)
+                    saved = True
+            except Exception:
+                pass
+
+        if not saved and uri_str.startswith("file://"):
             src_file = uri_str[7:]
             if os.path.exists(src_file):
                 shutil.copy2(src_file, dest_path)
-        if os.path.exists(dest_path):
+                saved = True
+
+        if not saved and os.path.exists(dest_path):
+            saved = True
+
+        if saved:
             on_success(dest_path)
+        else:
+            info_popup("Error", "No se pudo guardar la foto tomada")
     except Exception as e:
         info_popup("Error", f"Foto no almacenada: {e}")
 
@@ -1111,7 +1140,12 @@ class NotasScreen(BaseScreen):
 
 
 class FotosScreen(BaseScreen):
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self._pending_fotos = []
+
     def on_pre_enter(self):
+        self._pending_fotos = []
         self.clear_widgets()
         root = BoxLayout(orientation="vertical", spacing=dp(6), padding=[dp(12), dp(10)], size_hint_y=None)
         root.bind(minimum_height=root.setter("height"))
@@ -1201,26 +1235,57 @@ class FotosScreen(BaseScreen):
             dst_path = os.path.join(PHOTOS_DIR, filename)
             os.makedirs(PHOTOS_DIR, exist_ok=True)
             shutil.copy2(src_path, dst_path)
-            save_photo(filename, fecha, sector, desc, dst_path)
             _scan_media(dst_path)
-            info_popup("OK", "Foto importada")
+            self._pending_fotos.append({
+                "filename": filename, "fecha": fecha,
+                "sector": sector, "desc": desc, "ruta": dst_path,
+            })
             self._refresh_fotos()
         except Exception as e:
             info_popup("Error", f"Error al importar: {e}")
 
     def _foto_lista(self, path, fecha, sector, desc, filename):
         if path and os.path.exists(path):
-            save_photo(filename, fecha, sector, desc, path)
             _scan_media(path)
-            info_popup("OK", "Foto guardada")
+            self._pending_fotos.append({
+                "filename": filename, "fecha": fecha,
+                "sector": sector, "desc": desc, "ruta": path,
+            })
             self._refresh_fotos()
+
+    def _registrar_foto(self, pend):
+        save_photo(pend["filename"], pend["fecha"], pend["sector"], pend["desc"], pend["ruta"])
+        self._pending_fotos.remove(pend)
+        self._refresh_fotos()
+        info_popup("OK", "Foto registrada en el informe")
+
+    def _descartar_foto(self, pend):
+        self._pending_fotos.remove(pend)
+        if os.path.exists(pend["ruta"]):
+            try:
+                os.remove(pend["ruta"])
+            except Exception:
+                pass
+        self._refresh_fotos()
 
     def _refresh_fotos(self):
         self.fotos_box.clear_widgets()
+        has_items = False
+        for pend in self._pending_fotos:
+            has_items = True
+            lbl = colored_label(f"[SIN REGISTRAR] {pend['filename']}\n{pend['desc'] or ''}", YELLOW, size=11)
+            lbl.text_size = (Window.width - dp(80), None)
+            self.fotos_box.add_widget(lbl)
+            if os.path.exists(pend["ruta"]):
+                img = Image(source=pend["ruta"], size_hint_y=None, height=dp(150))
+                self.fotos_box.add_widget(img)
+            btn_box = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(8))
+            btn_box.add_widget(cat_button("REGISTRAR", lambda x, p=pend: self._registrar_foto(p), height=dp(36)))
+            btn_box.add_widget(cat_button("DESCARTAR", lambda x, p=pend: self._descartar_foto(p), height=dp(36)))
+            self.fotos_box.add_widget(btn_box)
         fotos = get_photos(date.today().isoformat())
-        if not fotos:
-            self.fotos_box.add_widget(colored_label("No hay fotos hoy", size=12))
-            return
+        if fotos:
+            has_items = True
         for f in fotos:
             lbl = colored_label(f"{f['filename']}\n{f['descripcion'] or ''}", WHITE, size=11)
             lbl.text_size = (Window.width - dp(80), None)
@@ -1232,6 +1297,8 @@ class FotosScreen(BaseScreen):
             btn_box.add_widget(small_btn("EDIT", lambda x, pid=f["id"]: self._edit_foto(pid)))
             btn_box.add_widget(del_btn(lambda x, pid=f["id"]: self._del_foto(pid)))
             self.fotos_box.add_widget(btn_box)
+        if not has_items:
+            self.fotos_box.add_widget(colored_label("No hay fotos hoy", size=12))
 
     def _edit_foto(self, pid):
         fotos = get_photos(date.today().isoformat())
