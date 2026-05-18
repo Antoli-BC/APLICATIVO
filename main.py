@@ -144,7 +144,7 @@ def _save_report_public(src_path):
             fd = pfd.detachFd()
             with os.fdopen(fd, 'wb') as dst:
                 dst.write(src.read())
-        return f"Documents/ControlObra/{filename}"
+        return uri.toString()
     except Exception:
         return None
 
@@ -224,6 +224,24 @@ def _save_public_saf(src_path, folder_uri_str):
         return _save_report_public(src_path)
 
 
+def _open_file_uri(uri_str):
+    if platform != "android" or not uri_str:
+        return
+    try:
+        from jnius import autoclass
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        Intent = autoclass('android.content.Intent')
+        Uri = autoclass('android.net.Uri')
+        activity = PythonActivity.mActivity
+        intent = Intent(Intent.ACTION_VIEW)
+        uri = Uri.parse(uri_str)
+        intent.setDataAndType(uri, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        activity.startActivity(intent)
+    except Exception as e:
+        info_popup("Error", f"No se pudo abrir: {e}")
+
+
 def _scan_media(filepath):
     if platform != "android":
         return
@@ -255,27 +273,13 @@ def init_dirs():
             pass
         try:
             from jnius import autoclass
-            Environment = autoclass('android.os.Environment')
-            ext_storage = Environment.getExternalStorageDirectory().getAbsolutePath()
-            base = os.path.join(ext_storage, "ControlObra")
-            os.makedirs(base, exist_ok=True)
-            test_path = os.path.join(base, ".perm_test")
-            with open(test_path, 'w') as f:
-                f.write('ok')
-            os.remove(test_path)
-            PHOTOS_BASE = base
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            activity = PythonActivity.mActivity
+            ext_dir = activity.getExternalFilesDir(None)
+            if ext_dir is not None:
+                PHOTOS_BASE = os.path.join(ext_dir.getAbsolutePath(), "Anotaciones_Obra")
         except Exception:
             PHOTOS_BASE = None
-        if not PHOTOS_BASE:
-            try:
-                from jnius import autoclass
-                PythonActivity = autoclass('org.kivy.android.PythonActivity')
-                activity = PythonActivity.mActivity
-                ext_dir = activity.getExternalFilesDir(None)
-                if ext_dir is not None:
-                    PHOTOS_BASE = os.path.join(ext_dir.getAbsolutePath(), "Anotaciones_Obra")
-            except Exception:
-                PHOTOS_BASE = None
         if not PHOTOS_BASE:
             import tempfile
             PHOTOS_BASE = os.path.join(tempfile.gettempdir(), "Anotaciones_Obra")
@@ -618,6 +622,20 @@ class BaseScreen(Screen):
         content.add_widget(btn_cancel)
         popup.open()
 
+    def _mostrar_guardado_exitoso(self, filename, uri_result):
+        content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(15))
+        content.add_widget(colored_label("Reporte guardado", YELLOW, size=14))
+        content.add_widget(colored_label(filename, WHITE, size=12))
+        content.add_widget(Widget(size_hint_y=None, height=dp(6)))
+        btn_layout = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
+        popup = Popup(title="Exito", content=content, size_hint=[0.85, None], height=dp(220))
+        btn_abrir = cat_button("ABRIR ARCHIVO", lambda x: [popup.dismiss(), _open_file_uri(uri_result)])
+        btn_ok = cat_button("OK", lambda x: popup.dismiss())
+        btn_layout.add_widget(btn_abrir)
+        btn_layout.add_widget(btn_ok)
+        content.add_widget(btn_layout)
+        popup.open()
+
     def _on_custom_folder(self, uri_str, doc, out_path, out_name):
         if not uri_str:
             _save_to(out_path)
@@ -626,11 +644,11 @@ class BaseScreen(Screen):
         _save_to(out_path)
         result = _save_public_saf(out_path, uri_str)
         if result:
-            info_popup("OK", f"Guardado en carpeta seleccionada")
+            self._mostrar_guardado_exitoso(out_name, result)
         else:
             pub = _save_report_public(out_path)
             if pub:
-                info_popup("OK", f"Guardado en: {pub}")
+                self._mostrar_guardado_exitoso(out_name, pub)
             else:
                 info_popup("Info", f"Guardado en:\n{out_path}")
 
@@ -1695,7 +1713,7 @@ class AdminScreen(BaseScreen):
 
     def _import_mat_pick_file(self, replace):
         if platform == "android":
-            _android_pick_file("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            _android_pick_file("*/*",
                                lambda p: self._do_import_mat_android(p, replace) if p else info_popup("Info", "No se seleccionó archivo"))
         else:
             content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
@@ -1713,8 +1731,18 @@ class AdminScreen(BaseScreen):
     def _do_import_mat_android(self, filepath, replace):
         if not filepath:
             return
-        confirm_popup("Subir archivo", f"Subir este archivo?\n{os.path.basename(filepath)}",
-                      lambda: self._do_import_mat_android_real(filepath, replace))
+        content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(15))
+        content.add_widget(colored_label("Archivo seleccionado:", YELLOW, size=13))
+        content.add_widget(colored_label(os.path.basename(filepath), WHITE, size=12))
+        content.add_widget(Widget(size_hint_y=None, height=dp(6)))
+        btn_layout = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
+        popup = Popup(title="Importar Excel", content=content, size_hint=[0.85, None], height=dp(220))
+        btn_subir = cat_button("SEGURO SUBIR", lambda x: [popup.dismiss(), self._do_import_mat_android_real(filepath, replace)])
+        btn_cancel = cat_button("CANCELAR", lambda x: popup.dismiss())
+        btn_layout.add_widget(btn_subir)
+        btn_layout.add_widget(btn_cancel)
+        content.add_widget(btn_layout)
+        popup.open()
 
     def _do_import_mat_android_real(self, filepath, replace):
         try:
@@ -1788,7 +1816,7 @@ class AdminScreen(BaseScreen):
 
     def _import_par_pick_file(self, replace):
         if platform == "android":
-            _android_pick_file("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            _android_pick_file("*/*",
                                lambda p: self._do_import_par_android(p, replace) if p else info_popup("Info", "No se seleccionó archivo"))
         else:
             content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
@@ -1806,8 +1834,18 @@ class AdminScreen(BaseScreen):
     def _do_import_par_android(self, filepath, replace):
         if not filepath:
             return
-        confirm_popup("Subir archivo", f"Subir este archivo?\n{os.path.basename(filepath)}",
-                      lambda: self._do_import_par_android_real(filepath, replace))
+        content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(15))
+        content.add_widget(colored_label("Archivo seleccionado:", YELLOW, size=13))
+        content.add_widget(colored_label(os.path.basename(filepath), WHITE, size=12))
+        content.add_widget(Widget(size_hint_y=None, height=dp(6)))
+        btn_layout = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
+        popup = Popup(title="Importar Excel", content=content, size_hint=[0.85, None], height=dp(220))
+        btn_subir = cat_button("SEGURO SUBIR", lambda x: [popup.dismiss(), self._do_import_par_android_real(filepath, replace)])
+        btn_cancel = cat_button("CANCELAR", lambda x: popup.dismiss())
+        btn_layout.add_widget(btn_subir)
+        btn_layout.add_widget(btn_cancel)
+        content.add_widget(btn_layout)
+        popup.open()
 
     def _do_import_par_android_real(self, filepath, replace):
         try:
