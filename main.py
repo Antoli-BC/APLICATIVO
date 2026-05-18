@@ -255,13 +255,27 @@ def init_dirs():
             pass
         try:
             from jnius import autoclass
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-            activity = PythonActivity.mActivity
-            ext_dir = activity.getExternalFilesDir(None)
-            if ext_dir is not None:
-                PHOTOS_BASE = os.path.join(ext_dir.getAbsolutePath(), "Anotaciones_Obra")
+            Environment = autoclass('android.os.Environment')
+            ext_storage = Environment.getExternalStorageDirectory().getAbsolutePath()
+            base = os.path.join(ext_storage, "ControlObra")
+            os.makedirs(base, exist_ok=True)
+            test_path = os.path.join(base, ".perm_test")
+            with open(test_path, 'w') as f:
+                f.write('ok')
+            os.remove(test_path)
+            PHOTOS_BASE = base
         except Exception:
             PHOTOS_BASE = None
+        if not PHOTOS_BASE:
+            try:
+                from jnius import autoclass
+                PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                activity = PythonActivity.mActivity
+                ext_dir = activity.getExternalFilesDir(None)
+                if ext_dir is not None:
+                    PHOTOS_BASE = os.path.join(ext_dir.getAbsolutePath(), "Anotaciones_Obra")
+            except Exception:
+                PHOTOS_BASE = None
         if not PHOTOS_BASE:
             import tempfile
             PHOTOS_BASE = os.path.join(tempfile.gettempdir(), "Anotaciones_Obra")
@@ -409,7 +423,7 @@ def _after_camera_store(request_code, result_code, intent, content_uri, dest_pat
         info_popup("Error", f"Foto no almacenada: {e}")
 
 
-def _android_pick_file(mime_type, on_result, mime_fallback=None):
+def _android_pick_file(mime_type, on_result):
     _setup_android_handler()
     global _ANDROID_PENDING
     try:
@@ -420,8 +434,6 @@ def _android_pick_file(mime_type, on_result, mime_fallback=None):
         intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
         intent.addCategory(Intent.CATEGORY_OPENABLE)
         intent.setType(mime_type)
-        if mime_fallback:
-            intent.putExtra(Intent.EXTRA_MIME_TYPES, mime_fallback)
         _ANDROID_PENDING = lambda rc, rcode, i: _handle_file_picked(rc, rcode, i, on_result)
         activity.startActivityForResult(intent, 1002)
     except Exception as e:
@@ -580,22 +592,11 @@ class BaseScreen(Screen):
         content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
         content.bind(minimum_height=content.setter("height"))
         content.add_widget(colored_label("Reporte generado correctamente", YELLOW, size=14))
-        content.add_widget(colored_label("¿Dónde desea guardarlo?", WHITE, size=12))
+        content.add_widget(colored_label("¿Desea guardar el informe?", WHITE, size=12))
+        content.add_widget(colored_label("Seleccione la carpeta donde desea guardarlo", WHITE, size=11))
         content.add_widget(Widget(size_hint_y=None, height=dp(6)))
         btn_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
-        popup = Popup(title="Guardar reporte", content=content, size_hint=[0.85, None], height=dp(280))
-        def _save_private(*a):
-            popup.dismiss()
-            _save_to(out_path)
-            info_popup("OK", f"Reporte guardado en:\n{out_path}")
-        def _save_public(*a):
-            popup.dismiss()
-            _save_to(out_path)
-            pub = _save_report_public(out_path)
-            msg = out_path
-            if pub:
-                msg = pub
-            info_popup("OK", f"Reporte guardado en:\n{msg}")
+        popup = Popup(title="Guardar reporte", content=content, size_hint=[0.85, None], height=dp(240))
         def _save_custom(*a):
             popup.dismiss()
             folder_uri = get_config("save_folder", "")
@@ -603,13 +604,8 @@ class BaseScreen(Screen):
                 self._on_custom_folder(folder_uri, doc, out_path, out_name)
             else:
                 _pick_save_folder(lambda uri_str: self._on_custom_folder(uri_str, doc, out_path, out_name))
-        btn_private = cat_button("SOLO EN LA APP", _save_private)
-        btn_public = cat_button("EN DOCUMENTOS", _save_public)
         btn_custom = cat_button("ELEGIR CARPETA", _save_custom)
         btn_cancel = cat_button("CANCELAR", lambda x: popup.dismiss())
-        btn_row.add_widget(btn_private)
-        btn_row.add_widget(btn_public)
-        content.add_widget(btn_row)
         content.add_widget(btn_custom)
         content.add_widget(btn_cancel)
         popup.open()
@@ -1152,13 +1148,8 @@ class FotosScreen(BaseScreen):
         sector = self.sector_spinner.text
         desc = self.desc_input.text.strip()
         if platform == "android":
-            try:
-                from plyer import filechooser
-                filechooser.open_file(
-                    on_selection=lambda sel: self._importar_foto(sel[0], fecha, sector, desc) if sel else None,
-                    filters=["*.jpg", "*.jpeg", "*.png", "*.webp"])
-            except Exception as e:
-                info_popup("Error", f"Selector: {e}")
+            _android_pick_file("image/*",
+                               lambda p: self._importar_foto(p, fecha, sector, desc) if p else None)
         else:
             content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
             content.bind(minimum_height=content.setter("height"))
@@ -1283,7 +1274,8 @@ class InformeScreen(BaseScreen):
             doc = generar_informe(fecha, avances, mats, notas, fotos, registro,
                                   resp_nombre, resp_cargo, res_nombre, res_cargo,
                                   self.asunto_input.text, proy_nombre, cui)
-            out_name = f"REPORTE_DIARIO_{fecha}.docx"
+            ts = datetime.now().strftime("%H%M%S")
+            out_name = f"REPORTE_DIARIO_{fecha}_{ts}.docx"
             out_path = os.path.join(REPORTS_DIR, out_name)
             self._preguntar_guardado(doc, out_path, out_name)
         except Exception as e:
@@ -1334,7 +1326,8 @@ class InformeSemanalScreen(BaseScreen):
             doc = generar_informe_semanal(ini, fin, registros, avances, mats, notas,
                                           resp_nombre, resp_cargo, res_nombre, res_cargo,
                                           "", proy_nombre, cui)
-            out_name = f"INFORME_SEMANAL_{ini}_al_{fin}.docx"
+            ts = datetime.now().strftime("%H%M%S")
+            out_name = f"INFORME_SEMANAL_{ini}_al_{fin}_{ts}.docx"
             out_path = os.path.join(REPORTS_DIR, out_name)
             self._preguntar_guardado(doc, out_path, out_name)
         except Exception as e:
@@ -1695,8 +1688,7 @@ class AdminScreen(BaseScreen):
     def _import_mat_pick_file(self, replace):
         if platform == "android":
             _android_pick_file("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               lambda p: self._do_import_mat_android(p, replace) if p else info_popup("Info", "No se seleccionó archivo"),
-                               mime_fallback=["application/vnd.ms-excel"])
+                               lambda p: self._do_import_mat_android(p, replace) if p else info_popup("Info", "No se seleccionó archivo"))
         else:
             content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
             content.bind(minimum_height=content.setter("height"))
@@ -1711,6 +1703,12 @@ class AdminScreen(BaseScreen):
             popup.open()
 
     def _do_import_mat_android(self, filepath, replace):
+        if not filepath:
+            return
+        confirm_popup("Subir archivo", f"Subir este archivo?\n{os.path.basename(filepath)}",
+                      lambda: self._do_import_mat_android_real(filepath, replace))
+
+    def _do_import_mat_android_real(self, filepath, replace):
         try:
             filepath = _resolve_android_path(filepath)
             import openpyxl
@@ -1783,8 +1781,7 @@ class AdminScreen(BaseScreen):
     def _import_par_pick_file(self, replace):
         if platform == "android":
             _android_pick_file("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               lambda p: self._do_import_par_android(p, replace) if p else info_popup("Info", "No se seleccionó archivo"),
-                               mime_fallback=["application/vnd.ms-excel"])
+                               lambda p: self._do_import_par_android(p, replace) if p else info_popup("Info", "No se seleccionó archivo"))
         else:
             content = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10), size_hint_y=None)
             content.bind(minimum_height=content.setter("height"))
@@ -1799,6 +1796,12 @@ class AdminScreen(BaseScreen):
             popup.open()
 
     def _do_import_par_android(self, filepath, replace):
+        if not filepath:
+            return
+        confirm_popup("Subir archivo", f"Subir este archivo?\n{os.path.basename(filepath)}",
+                      lambda: self._do_import_par_android_real(filepath, replace))
+
+    def _do_import_par_android_real(self, filepath, replace):
         try:
             filepath = _resolve_android_path(filepath)
             import openpyxl
@@ -2062,13 +2065,8 @@ class AdminScreen(BaseScreen):
 
     def _pick_header_image(self):
         if platform == "android":
-            try:
-                from plyer import filechooser
-                filechooser.open_file(
-                    on_selection=lambda sel: self._on_header_selected(sel[0] if sel else None),
-                    filters=["*.png", "*.jpg", "*.jpeg"])
-            except Exception as e:
-                info_popup("Error", f"Selector: {e}")
+            _android_pick_file("image/*",
+                               lambda p: self._on_header_selected(p) if p else None)
         else:
             content = BoxLayout(orientation="vertical", spacing=dp(10), size_hint_y=None)
             content.bind(minimum_height=content.setter("height"))
