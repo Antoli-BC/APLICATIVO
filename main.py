@@ -131,14 +131,14 @@ def _save_report_public(src_path):
         from jnius import autoclass, cast
         PythonActivity = autoclass('org.kivy.android.PythonActivity')
         ContentValues = autoclass('android.content.ContentValues')
-        downloads = autoclass('android.provider.MediaStore$Downloads')
+        Uri = autoclass('android.net.Uri')
         activity = PythonActivity.mActivity
         values = ContentValues()
         values.put("_display_name", filename)
         values.put("mime_type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         values.put("relative_path", "Documents/ControlObra")
-        uri = activity.getContentResolver().insert(
-            downloads.EXTERNAL_CONTENT_URI, values)
+        downloads_uri = Uri.parse("content://media/external/downloads")
+        uri = activity.getContentResolver().insert(downloads_uri, values)
         if uri is None:
             return None
         with open(src_path, 'rb') as src:
@@ -291,14 +291,26 @@ def init_dirs():
         except Exception:
             pass
         try:
-            from jnius import autoclass
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-            activity = PythonActivity.mActivity
-            ext_dir = activity.getExternalFilesDir(None)
-            if ext_dir is not None:
-                PHOTOS_BASE = os.path.join(ext_dir.getAbsolutePath(), "Anotaciones_Obra")
+            import tempfile
+            base_public = f"/storage/emulated/0/ControlObra"
+            os.makedirs(base_public, exist_ok=True)
+            test_path = os.path.join(base_public, ".perm_test")
+            with open(test_path, 'w') as f:
+                f.write('ok')
+            os.remove(test_path)
+            PHOTOS_BASE = base_public
         except Exception:
             PHOTOS_BASE = None
+        if not PHOTOS_BASE:
+            try:
+                from jnius import autoclass
+                PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                activity = PythonActivity.mActivity
+                ext_dir = activity.getExternalFilesDir(None)
+                if ext_dir is not None:
+                    PHOTOS_BASE = os.path.join(ext_dir.getAbsolutePath(), "Anotaciones_Obra")
+            except Exception:
+                PHOTOS_BASE = None
         if not PHOTOS_BASE:
             import tempfile
             PHOTOS_BASE = os.path.join(tempfile.gettempdir(), "Anotaciones_Obra")
