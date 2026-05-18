@@ -231,10 +231,7 @@ def _build_docx_stdlib(doc_title, fecha_label, sections_data,
     has_header_img = os.path.exists(img_path)
 
     body_parts = []
-    body_parts.append(f'<w:sectPr>'
-                      f'<w:pgSz w:w="11906" w:h="16838"/>'
-                      f'<w:pgMar w:left="1417" w:right="1417" w:top="1417" w:bottom="1417"/>'
-                      f'</w:sectPr>')
+    body_parts.append('__SECTPR__')
 
     body_parts.append(_mkpara(doc_title, bold=True, size=24, align="center", underline=True,
                                color="000000", spacing_after=200))
@@ -267,6 +264,7 @@ def _build_docx_stdlib(doc_title, fecha_label, sections_data,
 
     photo_rels = []
     photo_idx = 0
+    hdr_ref = None
 
     for section_data in sections_data:
         s_type = section_data.get("type")
@@ -347,14 +345,6 @@ def _build_docx_stdlib(doc_title, fecha_label, sections_data,
     body_parts.append(_mkpara(responsable_nombre, bold=True, size=20, align="center", spacing_after=20))
     body_parts.append(_mkpara(responsable_cargo, size=20, align="center"))
 
-    doc_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-    doc_xml += '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
-    doc_xml += ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-    doc_xml += '<w:body>'
-    doc_xml += '\n'.join(body_parts)
-    doc_xml += '</w:body></w:document>'
-    _add('word/document.xml', doc_xml)
-
     header_rels = []
     if has_header_img:
         with open(img_path, 'rb') as f:
@@ -365,17 +355,34 @@ def _build_docx_stdlib(doc_title, fecha_label, sections_data,
             target_hw = int(15 * CM2EMU)
             target_hh = int(target_hw * hh / hw)
             header_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            header_xml += '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
-            header_xml += ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            header_xml += ('<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+                           ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+                           ' xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
+                           ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+                           ' xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">')
             header_xml += _mkimage_para("rHeaderImg", target_hw, target_hh, "encabezado")
             header_xml += '</w:hdr>'
             _add('word/header1.xml', header_xml)
             header_rels.append(('rHeaderImg', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image', 'media/encabezado.png'))
             hdr_ref = ('rIdHdr', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/header', 'header1.xml')
-        else:
-            hdr_ref = None
-    else:
-        hdr_ref = None
+
+    sectPr = ('<w:sectPr>'
+              '<w:pgSz w:w="11906" w:h="16838"/>'
+              '<w:pgMar w:left="1417" w:right="1417" w:top="1417" w:bottom="1417"/>')
+    if hdr_ref:
+        sectPr += f'<w:headerReference w:type="default" r:id="{hdr_ref[0]}"/>'
+    sectPr += '</w:sectPr>'
+    body_parts[0] = sectPr
+    doc_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    doc_xml += ('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+                ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+                ' xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
+                ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+                ' xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">')
+    doc_xml += '<w:body>'
+    doc_xml += '\n'.join(body_parts)
+    doc_xml += '</w:body></w:document>'
+    _add('word/document.xml', doc_xml)
 
     rels_items = [
         ('rId1', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles', 'styles.xml'),
@@ -656,7 +663,7 @@ def _build_doc(doc_title, fecha_label, sections_data,
                         p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
                         r2 = p2.add_run("[No se pudo insertar la imagen]")
                         r2.font.size = Pt(9)
-                if foto["descripcion"]:
+                if foto.get("descripcion"):
                     p3 = doc.add_paragraph()
                     p3.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     r3 = p3.add_run(f"Descripcion: {foto['descripcion']}")

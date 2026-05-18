@@ -569,7 +569,7 @@ def get_materials(fecha=None):
     else:
         rows = conn.execute("SELECT * FROM materials ORDER BY fecha DESC, id").fetchall()
     conn.close()
-    return rows
+    return [dict(r) for r in rows]
 
 
 def update_material(mid, material, cantidad, unidad):
@@ -612,7 +612,7 @@ def get_field_notes(fecha=None):
     else:
         rows = conn.execute("SELECT * FROM field_notes ORDER BY fecha DESC, id").fetchall()
     conn.close()
-    return rows
+    return [dict(r) for r in rows]
 
 
 def update_field_note(nid, nota):
@@ -655,7 +655,7 @@ def get_photos(fecha=None):
     else:
         rows = conn.execute("SELECT * FROM photos ORDER BY fecha DESC, id").fetchall()
     conn.close()
-    return rows
+    return [dict(r) for r in rows]
 
 
 def update_photo(pid, sector, descripcion):
@@ -755,7 +755,7 @@ def get_materials_por_rango(fecha_inicio, fecha_fin):
         (fecha_inicio, fecha_fin),
     ).fetchall()
     conn.close()
-    return rows
+    return [dict(r) for r in rows]
 
 
 def delete_all_materiales_catalogo():
@@ -779,4 +779,4 @@ def get_field_notes_por_rango(fecha_inicio, fecha_fin):
         (fecha_inicio, fecha_fin),
     ).fetchall()
     conn.close()
-    return rows
+    return [dict(r) for r in rows]

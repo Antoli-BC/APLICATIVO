@@ -126,14 +126,16 @@ def _save_report_public(src_path):
         from jnius import autoclass, cast
         PythonActivity = autoclass('org.kivy.android.PythonActivity')
         ContentValues = autoclass('android.content.ContentValues')
-        Downloads = autoclass('android.provider.MediaStore$Downloads')
+        MediaStore = autoclass('android.provider.MediaStore')
+        downloads = autoclass('android.provider.MediaStore$Downloads')
         activity = PythonActivity.mActivity
         filename = os.path.basename(src_path)
         values = ContentValues()
-        values.put(Downloads.DISPLAY_NAME, filename)
-        values.put(Downloads.MIME_TYPE, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-        values.put(Downloads.RELATIVE_PATH, "Documents/ControlObra")
-        uri = activity.getContentResolver().insert(Downloads.EXTERNAL_CONTENT_URI, values)
+        values.put("_display_name", filename)
+        values.put("mime_type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        values.put("relative_path", "Documents/ControlObra")
+        uri = activity.getContentResolver().insert(
+            downloads.EXTERNAL_CONTENT_URI, values)
         if uri is None:
             return None
         with open(src_path, 'rb') as src:
@@ -146,6 +148,91 @@ def _save_report_public(src_path):
     except Exception:
         return None
 
+
+_SAVED_FOLDER_URI = None
+_SAVED_FOLDER_PENDING = None
+
+def _pick_save_folder(on_selected=None):
+    global _SAVED_FOLDER_PENDING
+    if platform != "android":
+        if on_selected:
+            on_selected(None)
+        return
+    _setup_android_handler()
+    global _ANDROID_PENDING
+    try:
+        from jnius import autoclass
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        Intent = autoclass('android.content.Intent')
+        activity = PythonActivity.mActivity
+        intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        _SAVED_FOLDER_PENDING = on_selected
+        _ANDROID_PENDING = lambda rc, rcode, i: _handle_folder_picked(rc, rcode, i)
+        activity.startActivityForResult(intent, 1003)
+    except Exception as e:
+        info_popup("Error", f"Selector de carpeta: {e}")
+
+def _handle_folder_picked(request_code, result_code, intent):
+    global _SAVED_FOLDER_URI, _SAVED_FOLDER_PENDING
+    if result_code != -1 or not intent:
+        if _SAVED_FOLDER_PENDING:
+            _SAVED_FOLDER_PENDING(None)
+        _SAVED_FOLDER_PENDING = None
+        return
+    try:
+        from jnius import autoclass
+        uri = intent.getData()
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        Intent = autoclass('android.content.Intent')
+        activity = PythonActivity.mActivity
+        takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        activity.getContentResolver().takePersistableUriPermission(uri, takeFlags)
+        _SAVED_FOLDER_URI = uri.toString()
+        if _SAVED_FOLDER_PENDING:
+            _SAVED_FOLDER_PENDING(uri.toString())
+        _SAVED_FOLDER_PENDING = None
+    except Exception:
+        if _SAVED_FOLDER_PENDING:
+            _SAVED_FOLDER_PENDING(None)
+        _SAVED_FOLDER_PENDING = None
+
+def _save_public_saf(src_path, folder_uri_str):
+    try:
+        from jnius import autoclass, cast
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        DocumentsContract = autoclass('android.provider.DocumentsContract')
+        Uri = autoclass('android.net.Uri')
+        activity = PythonActivity.mActivity
+        resolver = activity.getContentResolver()
+        tree_uri = Uri.parse(folder_uri_str)
+        doc_id = DocumentsContract.getTreeDocumentId(tree_uri)
+        doc_uri = DocumentsContract.buildDocumentUriUsingTree(tree_uri, doc_id + "%2F" + os.path.basename(src_path))
+        with open(src_path, 'rb') as src:
+            pfd = resolver.openFileDescriptor(doc_uri, "w")
+            pfd = cast('android.os.ParcelFileDescriptor', pfd)
+            fd = pfd.detachFd()
+            with os.fdopen(fd, 'wb') as dst:
+                dst.write(src.read())
+        return doc_uri.toString()
+    except Exception:
+        return _save_report_public(src_path)
+
+
+def _scan_media(filepath):
+    if platform != "android":
+        return
+    try:
+        from jnius import autoclass, cast
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        MediaScannerConnection = autoclass('android.media.MediaScannerConnection')
+        activity = PythonActivity.mActivity
+        Uri = autoclass('android.net.Uri')
+        uri = Uri.fromFile(autoclass('java.io.File')(filepath))
+        MediaScannerConnection.scanFile(activity, [filepath], ["image/jpeg"], None)
+    except Exception:
+        pass
 
 
 def init_dirs():
@@ -234,10 +321,11 @@ def _android_camera(filepath, on_success):
             ContentValues = autoclass('android.content.ContentValues')
             filename_only = os.path.basename(filepath)
             values = ContentValues()
-            values.put(ImagesMedia.DISPLAY_NAME, filename_only)
-            values.put(ImagesMedia.MIME_TYPE, "image/jpeg")
+            values.put("_display_name", filename_only)
+            values.put("mime_type", "image/jpeg")
             if api_version >= 29:
-                values.put(ImagesMedia.RELATIVE_PATH, "Pictures/Anotaciones_Obra")
+                values.put("relative_path", "Pictures/Anotaciones_Obra")
+                values.put("is_pending", 1)
             content_uri = activity.getContentResolver().insert(
                 ImagesMedia.EXTERNAL_CONTENT_URI, values)
             if content_uri is None:
@@ -246,7 +334,7 @@ def _android_camera(filepath, on_success):
             intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             _ANDROID_PENDING = lambda rc, rcode, i: _after_camera_store(
-                rc, rcode, i, content_uri, filepath, on_success)
+                rc, rcode, i, content_uri, filepath, on_success, api_version)
         else:
             Uri = autoclass('android.net.Uri')
             File = autoclass('java.io.File')
@@ -282,13 +370,14 @@ def _resolve_android_path(filepath):
     return filepath
 
 
-def _after_camera_store(request_code, result_code, intent, content_uri, dest_path, on_success):
+def _after_camera_store(request_code, result_code, intent, content_uri, dest_path, on_success, api_ver=0):
     if result_code != -1:
         return
     try:
         from jnius import autoclass, cast
         import shutil
         PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        ContentValues = autoclass('android.content.ContentValues')
         activity = PythonActivity.mActivity
         resolver = activity.getContentResolver()
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
@@ -298,7 +387,12 @@ def _after_camera_store(request_code, result_code, intent, content_uri, dest_pat
         with os.fdopen(fd, 'rb') as src:
             with open(dest_path, 'wb') as dst:
                 shutil.copyfileobj(src, dst)
-        resolver.delete(content_uri, None, None)
+        if api_ver >= 29:
+            vals = ContentValues()
+            vals.put("is_pending", 0)
+            resolver.update(content_uri, vals, None, None)
+        else:
+            resolver.delete(content_uri, None, None)
         on_success(dest_path)
     except Exception as e:
         info_popup("Error", f"Foto no almacenada: {e}")
@@ -471,7 +565,7 @@ class BaseScreen(Screen):
         content.add_widget(colored_label("¿Dónde desea guardarlo?", WHITE, size=12))
         content.add_widget(Widget(size_hint_y=None, height=dp(6)))
         btn_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
-        popup = Popup(title="Guardar reporte", content=content, size_hint=[0.85, None], height=dp(240))
+        popup = Popup(title="Guardar reporte", content=content, size_hint=[0.85, None], height=dp(280))
         def _save_private(*a):
             popup.dismiss()
             _save_to(out_path)
@@ -482,16 +576,33 @@ class BaseScreen(Screen):
             pub = _save_report_public(out_path)
             msg = out_path
             if pub:
-                msg = f"Descargas/{pub}"
+                msg = pub
             info_popup("OK", f"Reporte guardado en:\n{msg}")
+        def _save_custom(*a):
+            popup.dismiss()
+            _pick_save_folder(lambda uri_str: self._on_custom_folder(uri_str, doc, out_path, out_name))
         btn_private = cat_button("SOLO EN LA APP", _save_private)
         btn_public = cat_button("EN DOCUMENTOS", _save_public)
+        btn_custom = cat_button("ELEGIR CARPETA", _save_custom)
         btn_cancel = cat_button("CANCELAR", lambda x: popup.dismiss())
         btn_row.add_widget(btn_private)
         btn_row.add_widget(btn_public)
         content.add_widget(btn_row)
+        content.add_widget(btn_custom)
         content.add_widget(btn_cancel)
         popup.open()
+
+    def _on_custom_folder(self, uri_str, doc, out_path, out_name):
+        if not uri_str:
+            _save_to(out_path)
+            info_popup("OK", f"Guardado en:\n{out_path}")
+            return
+        _save_to(out_path)
+        result = _save_public_saf(out_path, uri_str)
+        if result:
+            info_popup("OK", f"Guardado en carpeta seleccionada")
+        else:
+            info_popup("Error", "No se pudo guardar en la carpeta seleccionada.\nGuardado en almacenamiento interno.")
 
     def _confirmar_importacion(self, items, replace, tipo, delete_func, save_func=None):
         if not items:
@@ -997,7 +1108,9 @@ class FotosScreen(BaseScreen):
         fecha = self.fecha_input.text.strip()
         sector = self.sector_spinner.text
         desc = self.desc_input.text.strip()
-        filename = f"{fecha}_{sector.replace(' ','_')}_{datetime.now().strftime('%H%M%S')}.jpg"
+        s = sector.replace(' ', '_') if sector else 'General'
+        d = desc.replace(' ', '_')[:30] if desc else 'foto'
+        filename = f"[{fecha}][{s}][{d}].jpg"
         filepath = os.path.join(PHOTOS_DIR, filename)
         if platform == "android":
             _android_camera(filepath, lambda p: self._foto_lista(p, fecha, sector, desc, filename))
@@ -1038,11 +1151,15 @@ class FotosScreen(BaseScreen):
         try:
             src_path = _resolve_android_path(src_path)
             import shutil
-            filename = f"{fecha}_{sector.replace(' ','_')}_{datetime.now().strftime('%H%M%S')}{os.path.splitext(src_path)[1] or '.jpg'}"
+            s = sector.replace(' ', '_') if sector else 'General'
+            d = desc.replace(' ', '_')[:30] if desc else 'galeria'
+            ext = os.path.splitext(src_path)[1] or '.jpg'
+            filename = f"[{fecha}][{s}][{d}]{ext}"
             dst_path = os.path.join(PHOTOS_DIR, filename)
             os.makedirs(PHOTOS_DIR, exist_ok=True)
             shutil.copy2(src_path, dst_path)
             save_photo(filename, fecha, sector, desc, dst_path)
+            _scan_media(dst_path)
             info_popup("OK", "Foto importada")
             self._refresh_fotos()
         except Exception as e:
@@ -1051,6 +1168,7 @@ class FotosScreen(BaseScreen):
     def _foto_lista(self, path, fecha, sector, desc, filename):
         if path and os.path.exists(path):
             save_photo(filename, fecha, sector, desc, path)
+            _scan_media(path)
             info_popup("OK", "Foto guardada")
             self._refresh_fotos()
 
@@ -1666,16 +1784,19 @@ class AdminScreen(BaseScreen):
         try:
             filepath = _resolve_android_path(filepath)
             import openpyxl
+            import unicodedata
             wb = openpyxl.load_workbook(filepath, read_only=True)
             ws = wb.active
-            headers = [str(cell.value or "").strip().upper() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+            def _norm(h):
+                return unicodedata.normalize('NFKD', str(h or "").strip().upper()).encode('ASCII', 'ignore').decode('ascii')
+            headers = [_norm(cell.value) for cell in next(ws.iter_rows(min_row=1, max_row=1))]
             if "NOMBRE" not in headers:
                 info_popup("Error", "El Excel debe tener columna: Nombre")
                 wb.close(); return
             col_idx = {h: i for i, h in enumerate(headers)}
             items = []
             for row in ws.iter_rows(min_row=2, values_only=True):
-                nombre = str(row[col_idx["NOMBRE"]] or "").strip() if "NOMBRE" in col_idx and col_idx["NOMBRE"] < len(row) else ""
+                nombre = str(row[col_idx["NOMBRE"]] or "").strip() if col_idx["NOMBRE"] < len(row) else ""
                 if not nombre:
                     continue
                 cod = str(row[col_idx["CODIGO"]] or "").strip() if "CODIGO" in col_idx and col_idx["CODIGO"] < len(row) else ""
@@ -1708,16 +1829,19 @@ class AdminScreen(BaseScreen):
             return
         try:
             import openpyxl
+            import unicodedata
             wb = openpyxl.load_workbook(filepath, read_only=True)
             ws = wb.active
-            headers = [str(cell.value or "").strip().upper() for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+            def _norm(h):
+                return unicodedata.normalize('NFKD', str(h or "").strip().upper()).encode('ASCII', 'ignore').decode('ascii')
+            headers = [_norm(cell.value) for cell in next(ws.iter_rows(min_row=1, max_row=1))]
             if "NOMBRE" not in headers:
                 info_popup("Error", "El Excel debe tener columna: Nombre")
                 wb.close(); return
             col_idx = {h: i for i, h in enumerate(headers)}
             items = []
             for row in ws.iter_rows(min_row=2, values_only=True):
-                nombre = str(row[col_idx["NOMBRE"]] or "").strip() if "NOMBRE" in col_idx and col_idx["NOMBRE"] < len(row) else ""
+                nombre = str(row[col_idx["NOMBRE"]] or "").strip() if col_idx["NOMBRE"] < len(row) else ""
                 if not nombre:
                     continue
                 cod = str(row[col_idx["CODIGO"]] or "").strip() if "CODIGO" in col_idx and col_idx["CODIGO"] < len(row) else ""
